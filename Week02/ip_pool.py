@@ -22,5 +22,36 @@ def check_hostname(hostname: str) -> None:
         raise ValueError(f"The hostname {hostname} needs {MIN_HOSTNAME} characters, and no space.")
 
 
+class IPAddress:
+    def __init__(self, address: str, vlan: int):
+        check_ipv4(address)
+        self.address = address
+        self.vlan = vlan
+        self.hostname: str | None = None
+        self.start_day: int | None = None
+        self.end_day: int | None = None
 
+    def assign(self, hostname: str, start_day: int, end_day: int) -> None:
+        self.hostname = hostname
+        self.start_day = start_day
+        self.end_day = end_day
+
+    def release(self) -> tuple[str, int]:
+        record = (self.hostname, self.start_day, self.end_day + 1)
+        self.hostname = self.start_day = self.end_day = None
+        return record
+    def __str__(self) -> str:
+        state = "free" if self.hostname is None else f"{self.hostname} day {self.start_day} to {self.end_day}"
+        return f"{self.address:<12} VLAN {self.vlan<4} {state}"
+
+class AddressPool:
+    def __init__(self, addresses: list[IPAddress]):
+        self.addresses = addresses
+    
+    def lease(self, hostname: str, start_day: int, end_day: int) -> IPAddress | None:
+
+def main():
+    pass
+if __name__ == "__main__":
+    main()
 
