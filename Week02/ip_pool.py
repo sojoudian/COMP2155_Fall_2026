@@ -14,7 +14,7 @@ def check_ipv4(address: str) -> None:
         raise ValueError(f"Invalid IPv4 address: {address}")
 
 def check_days(start_day: int, end_day: int) -> None:
-    if FIRST_DAY <= start_day <= end_day <= LAST_DAY:
+    if not FIRST_DAY <= start_day <= end_day <= LAST_DAY:
         raise ValueError(f"The days {start_day} to {end_day} are outside of {FIRST_DAY} and {LAST_DAY}")
 
 def check_hostname(hostname: str) -> None:
@@ -42,16 +42,44 @@ class IPAddress:
         return record
     def __str__(self) -> str:
         state = "free" if self.hostname is None else f"{self.hostname} day {self.start_day} to {self.end_day}"
-        return f"{self.address:<12} VLAN {self.vlan<4} {state}"
+        return f"{self.address:<12} VLAN {self.vlan:<4} {state}"
+
+# Registration code: K0NE
+# Atklass: 6DTJ
+# github.com/sojoudian/COMP2155_Fall_2026
 
 class AddressPool:
     def __init__(self, addresses: list[IPAddress]):
         self.addresses = addresses
-    
+
     def lease(self, hostname: str, start_day: int, end_day: int) -> IPAddress | None:
+        check_hostname(hostname)
+        check_days(start_day, end_day)
+        for item in self.addresses:
+            if item.hostname is None:
+                item.assign(hostname, start_day, end_day)
+                return item
+        return None
+
+    def release(self, address: str) -> tuple[str, int] | None:
+        for item in self.addresses:
+            if item.address == address and item.hostname is not None:
+                return item.release()
+        return None
+
 
 def main():
-    pass
+    pool = AddressPool([IPAddress(f"10.0.0.{n}", 10) for n in range(11, 15)])
+    pool.lease("router-a", 1, 5)
+    pool.lease("router-b", 3, 8)
+    print("released: ", pool.release("10.0.0.11"))
+    for item in pool.addresses:
+        for check, args in [(check_ipv4, ("10.0.0.300",)), (check_days, (20, 10)), (check_hostname, ("ab",))]:
+            try:
+                check(*args)
+            except ValueError as error:
+                print("Rejected: ", error)
+
 if __name__ == "__main__":
     main()
 
