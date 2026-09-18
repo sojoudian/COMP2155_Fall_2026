@@ -1,11 +1,9 @@
-from multiprocessing.managers import rebuild_as_list
-
 FIRST_DAY = 1
 LAST_DAY = 31
 MIN_HOSTNAME = 3
 OCTET_COUNT = 4
-MIN_OCTET= 0
-MAX_OCTET= 255
+MIN_OCTET = 0
+MAX_OCTET = 255
 
 def check_ipv4(address: str) -> None:
     parts = address.split(".")
@@ -15,7 +13,7 @@ def check_ipv4(address: str) -> None:
 
 def check_days(start_day: int, end_day: int) -> None:
     if not FIRST_DAY <= start_day <= end_day <= LAST_DAY:
-        raise ValueError(f"The days {start_day} to {end_day} are outside of {FIRST_DAY} and {LAST_DAY}")
+        raise ValueError(f"The days {start_day} to {end_day} are outside {FIRST_DAY} to {LAST_DAY}.")
 
 def check_hostname(hostname: str) -> None:
     if len(hostname) < MIN_HOSTNAME or " " in hostname:
@@ -37,16 +35,14 @@ class IPAddress:
         self.end_day = end_day
 
     def release(self) -> tuple[str, int]:
-        record = (self.hostname, self.start_day, self.end_day + 1)
+        record = (self.hostname, self.end_day - self.start_day + 1)
         self.hostname = self.start_day = self.end_day = None
         return record
+
     def __str__(self) -> str:
         state = "free" if self.hostname is None else f"{self.hostname} day {self.start_day} to {self.end_day}"
         return f"{self.address:<12} VLAN {self.vlan:<4} {state}"
 
-# Registration code: K0NE
-# Atklass: 6DTJ
-# github.com/sojoudian/COMP2155_Fall_2026
 
 class AddressPool:
     def __init__(self, addresses: list[IPAddress]):
@@ -74,12 +70,12 @@ def main():
     pool.lease("router-b", 3, 8)
     print("released: ", pool.release("10.0.0.11"))
     for item in pool.addresses:
-        for check, args in [(check_ipv4, ("10.0.0.300",)), (check_days, (20, 10)), (check_hostname, ("ab",))]:
-            try:
-                check(*args)
-            except ValueError as error:
-                print("Rejected: ", error)
+        print(" ", item)
+    for check, args in [(check_ipv4, ("10.0.0.300",)), (check_days, (20, 10)), (check_hostname, ("ab",))]:
+        try:
+            check(*args)
+        except ValueError as error:
+            print("Rejected: ", error)
 
 if __name__ == "__main__":
     main()
-
