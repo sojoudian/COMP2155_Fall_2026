@@ -40,9 +40,9 @@ class IPAddress:
         self.address = address
         self.vlan = vlan
         # A free address holds None in these 3 attributes
-        self.hostname = str | None = None
-        self.start_day = int | None = None
-        self.end_day = int | None = None
+        self.hostname: str | None = None
+        self.start_day: int | None = None
+        self.end_day: int | None = None
 
     def is_free(self) -> bool:
         return self.hostname is None
@@ -70,7 +70,7 @@ class IPAddress:
         return record
 
     def __str__(self) -> str:
-        head = f"{self.address: < 12} VLAN {self.vlan:<4}"
+        head = f"{self.address:<12} VLAN {self.vlan:<4}"
         if self.is_free():
             return f"{head} free"
         return f"{head} {self.hostname} holds day {self.start_day} to {self.end_day}"
@@ -95,6 +95,24 @@ class AddressPool:
         print(title)
         for item in self.addresses:
             print("", item)
+
+
+def main():
+    pool = AddressPool([IPAddress(f"10.0.0.{n}", 10) for n in range(11, 15)])
+    pool.show("The new pool")
+    pool.lease("router-a", 1, 5)
+    pool.lease("router-b", 3, 8)
+    pool.show("\nAfter 2 leases")
+    print("\nreleased:", pool.release("10.0.0.11"))
+    pool.show("\nAfter 1 release")
+    for hostname, start_day, end_day in [("ab", 1, 3), ("router-y", 20, 10)]:
+        try:
+            pool.lease(hostname, start_day, end_day)
+        except ValueError as error:
+            print("Rejected:", error)
+
+if __name__ == "__main__":
+    main()
 
 
 
