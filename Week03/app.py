@@ -1,6 +1,11 @@
 import csv
+
 from network_devices import Device, Server
 
+def log(message):
+    file = open("activity.log", "a")
+    file.write("\n")
+    file.close()
 
 def main():
     file = open("devices.csv")
@@ -13,7 +18,9 @@ def main():
                 devices.append(Device.from_row(row))
     file.close()
     for device in devices:
+        device.check()
         print(device)
+        log(str(device))
 
 if __name__ == "__main__":
     main()
