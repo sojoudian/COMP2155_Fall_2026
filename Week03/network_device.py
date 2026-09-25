@@ -40,3 +40,20 @@ class Device:
     def probe(self):
         command = ["ping", Device.ping_flag(), "1", self.ip]
         subprocess.run(command, capture_output=True, timeout=3, check=True)
+
+    def is_up(self):
+        return self.status == "UP"
+    def __str__(self):
+        return f"{self.hostname} {self.ip} {self.status}"
+
+
+class Server(Device):
+    def __init__(self, hostname, host, port=443):
+        super().__init__(hostname, host)
+        self.port = port
+    def service(self):
+        return socket.getservbyport(self.port)
+    def probe(self):
+        return socket.create_connection((self.ip, self.port), timeout=3).close()
+    def __str__(self):
+        return super().__str__() + f"{self.service()}/{self.port}"
