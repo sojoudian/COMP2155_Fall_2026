@@ -8,7 +8,7 @@ class Device:
         self.hostname = hostname
         self.host = host
         self.ip = "no DNS"
-        self.down = "Down"
+        self.status = "DOWN"
         Device.count += 1
 
     @property
@@ -34,7 +34,7 @@ class Device:
             self.status = "UP"
 
         except Exception:
-            self.status = "Down"
+            self.status = "DOWN"
 
     def probe(self):
         command = ["ping", Device.ping_flag(), "1", self.ip]
@@ -44,7 +44,7 @@ class Device:
         return self.status == "UP"
 
     def __str__(self):
-        return f"{self.hostname} {self.ip} {self.status}"
+        return f" {self.hostname} {self.ip} {self.status}"
 
 class Server(Device):
     def __init__(self, hostname, host, port=443):
