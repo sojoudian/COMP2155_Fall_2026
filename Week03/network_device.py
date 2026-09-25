@@ -56,4 +56,4 @@ class Server(Device):
     def probe(self):
         return socket.create_connection((self.ip, self.port), timeout=3).close()
     def __str__(self):
-        return super().__str__() + f"{self.service()}/{self.port}"
+        return super().__str__() + f" ({self.service()}/{self.port})"
