@@ -33,7 +33,7 @@ class Device:
     def check(self):
         try:
             self.ip = socket.gethostbyname(self.host)
-            self.prob()
+            self.probe()
             self.status = "UP"
         except Exception:
             self.status = "DOWN"
