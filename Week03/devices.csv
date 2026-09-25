@@ -1,0 +1,7 @@
+hostname,host,type,active
+gDNS,8.8.8.8,Device,yes
+tNet,192.168.0.2,Device,yes
+oldSwitch,10.0.0.254,Device,no
+github,github.com,Server,yes
+tunnels,tunnels.io,Server,yes
+brokenServer,no_host,invalid,yes
