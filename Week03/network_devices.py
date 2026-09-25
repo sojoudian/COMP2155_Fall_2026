@@ -44,7 +44,7 @@ class Device:
         return self.status == "UP"
 
     def __str__(self):
-        return f" {self.hostname} {self.ip} {self.status}"
+        return f"{self.hostname} {self.ip} {self.status}"
 
 class Server(Device):
     def __init__(self, hostname, host, port=443):
@@ -56,7 +56,7 @@ class Server(Device):
     def probe(self):
         socket.create_connection((self.ip, self.port), timeout=3).close()
     def __str__(self):
-        return super().__str__() + f"{self.service()}/{self.port}"
+        return super().__str__() + f" ({self.service()}/{self.port})"
 
 
 

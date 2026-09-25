@@ -4,5 +4,4 @@ tDev,192.168.0.2,Device,yes
 oldSwitch,10.0.0.254,Device,no
 github,github.com,Server,yes
 tunnels,tunnels.io,Server,yes
-maziar,mzaiar.studio,Server,yes
 brokenDNS,nohost.invalid,Server,yes
