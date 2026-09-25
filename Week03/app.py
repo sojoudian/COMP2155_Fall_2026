@@ -4,7 +4,7 @@ from network_devices import Device, Server
 
 def log(message):
     file = open("activity.log", "a")
-    file.write("\n")
+    file.write(message + "\n")
     file.close()
 
 def main():
