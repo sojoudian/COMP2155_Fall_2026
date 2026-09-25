@@ -1,0 +1,5 @@
+gDNS 8.8.8.8 UP
+tNet 192.168.0.2 DOWN
+github 140.82.112.3 UP (https/443)
+tunnels 172.64.80.1 UP (https/443)
+brokenServer no DNS DOWN
