@@ -39,3 +39,9 @@ class Device:
     def probe(self):
         command = ["ping", Device.ping_flag(), "1", self.ip]
         subprocess.run(command, capture_output=True, timeout=3, check=True)
+
+    def is_up(self):
+        return self.status == "UP"
+
+    def __str__(self):
+        return f"{self.hostname} {self.ip} {self.status}"
