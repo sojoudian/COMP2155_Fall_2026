@@ -1,5 +1,12 @@
 # PNETLab: Two Cisco 7200 Routers with SSH Key Login from Windows
 
+If the PNETLab VM does not start in VMware, download [`fix-vmware.ps1`](fix-vmware.ps1) and run in **PowerShell**:
+
+```powershell
+cd $HOME\Downloads
+powershell -ExecutionPolicy Bypass -File .\fix-vmware.ps1
+```
+
 PNETLab VM IP: `192.168.113.128` (network `192.168.113.0/24`)
 
 | Device | Interface | IP |
