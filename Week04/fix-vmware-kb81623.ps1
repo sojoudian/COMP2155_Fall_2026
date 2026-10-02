@@ -1,19 +1,23 @@
-# Purpose: correct the VMware error that refers to KB article 81623:
+# Purpose: correct these two VMware errors:
 #   "VMware Workstation does not support virtualized performance counters on this host."
+#   (KB article 81623)
+#   "VMware Workstation does not support nested virtualization on this host.
+#    Module 'HV' power on failed."
 #
-# The script sets "Virtualize CPU performance counters" to off in the .vmx file
-# of the PNETLab virtual machine. The lab does not use these counters.
+# The script sets two settings to off in the .vmx file of the PNETLab virtual machine:
+#   1. "Virtualize CPU performance counters"
+#   2. "Virtualize Intel VT-x/EPT or AMD-V/RVI"
+# The Week04 lab does not use these settings.
 #
 # Before you run this script, shut down the virtual machine and close VMware.
 #
 # Usage:
 #   .\fix-vmware-kb81623.ps1
 #   .\fix-vmware-kb81623.ps1 -VmxPath "C:\path\to\PNET_4.2.10.vmx"
-#   .\fix-vmware-kb81623.ps1 -ClearVtx
 #
 # -VmxPath  gives the .vmx file. Without it, the script looks for PNET*.vmx
 #           in "Documents\Virtual Machines".
-# -ClearVtx also sets "Virtualize Intel VT-x/EPT or AMD-V/RVI" to off.
+# -ClearVtx has no effect. The script accepts it so that an older command continues to operate.
 #
 # The script keeps the initial file as a backup with the extension .bak.
 #
@@ -52,11 +56,8 @@ if ($VmxPath) {
     }
 }
 
-# 3. Set the values to off in each file.
-$keys = @('vpmc.enable')
-if ($ClearVtx) {
-    $keys += 'vhv.enable'
-}
+# 3. Set the two values to off in each file.
+$keys = @('vpmc.enable', 'vhv.enable')
 
 # This encoding reads and writes each byte without a change.
 $encoding = [System.Text.Encoding]::GetEncoding(28591)
