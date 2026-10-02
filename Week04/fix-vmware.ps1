@@ -1,7 +1,7 @@
 # fix-vmware.ps1
 #
-# Purpose: make the PNETLab virtual machine start in VMware Workstation on Windows,
-# and set nested virtualization to on when the computer permits it.
+# Purpose: make nested virtualization available to VMware Workstation on Windows,
+# and make the PNETLab virtual machine start.
 #
 # This one script corrects these VMware errors:
 #   "VMware Workstation does not support virtualized performance counters on this host."
@@ -12,43 +12,54 @@
 #
 # How to use it:
 #   1. Run:  powershell -ExecutionPolicy Bypass -File .\fix-vmware.ps1
-#   2. Start the virtual machine. It starts immediately, without nested virtualization.
-#   3. Restart the computer when the script tells you.
-#   4. Run the script again after the restart. It then sets nested virtualization to on.
+#   2. Select Yes in the User Account Control window.
+#   3. Restart the computer when the script asks (Restart, not Shut down).
+#   4. During the start, a black screen asks about Credential Guard and
+#      virtualization-based security. Press F3 for each question.
+#   5. Run the script again after the restart. It then sets nested virtualization to on.
 #
 # What the script does:
 #   A. Virtual machine (.vmx file):
-#      - "Virtualize CPU performance counters" goes off at all times.
-#      - "Virtualize Intel VT-x/EPT or AMD-V/RVI" goes on only when the Windows
-#        hypervisor is off. If not, it goes off, so that the virtual machine starts.
+#      - "Virtualize Intel VT-x/EPT or AMD-V/RVI" goes on when the Windows hypervisor is off.
+#        While the Windows hypervisor is on, it goes off, so that the virtual machine starts.
+#      - "Virtualize CPU performance counters" goes off. Nested virtualization does not use it.
 #      - The script keeps the initial file as a backup with the extension .bak.
-#   B. Windows (needs Administrator rights and one restart):
-#      - The script sets the Windows hypervisor, Hyper-V, Virtual Machine Platform,
-#        Windows Hypervisor Platform, Windows Sandbox, Memory Integrity,
-#        and Credential Guard to off.
+#   B. Windows (needs Administrator rights and one restart). The script sets these items to off:
+#      - The Windows hypervisor and the virtual secure mode (boot settings).
+#      - Hyper-V, Windows Hypervisor Platform, Virtual Machine Platform, Windows Sandbox,
+#        Application Guard.
+#      - Virtualization-based security, Memory Integrity, Credential Guard,
+#        System Guard Secure Launch (Firmware protection), Kernel-mode Stack Protection.
+#      - The UEFI lock of virtualization-based security and Credential Guard
+#        (the Microsoft procedure with SecConfig.efi, which needs the F3 key at the start).
+#      - BitLocker protection stops for one restart only, to prevent a recovery key question.
 #
 # Effects of part B:
 #   - The security of the computer decreases.
 #   - WSL 2, Docker Desktop, Windows Sandbox, and Hyper-V virtual machines stop.
 #
-# The script cannot correct these conditions. The virtual machine then operates
-# without nested virtualization:
+# The script cannot correct these conditions:
 #   - VT-x or AMD-V is off in the BIOS or UEFI.
-#   - Credential Guard or Memory Integrity has a UEFI lock.
 #   - A domain, Intune, or Group Policy applies the settings again.
 #
 # Parameters:
-#   -VmxPath "C:\path\to\PNET_4.2.10.vmx"   gives the .vmx file.
-#   -VmOnly                                  does only part A.
-#   -HostOnly                                does only part B.
+#   -VmxPath "C:\path\to\PNET.vmx"   gives the .vmx file.
+#   -VmOnly                          does only part A.
+#   -HostOnly                        does only part B.
+#   -Force                           does part B again, although it was done before.
 
 param(
     [string]$VmxPath,
     [switch]$VmOnly,
-    [switch]$HostOnly
+    [switch]$HostOnly,
+    [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
+
+# The number of the Windows changes. A higher number has more changes.
+$HostLevel = 2
+$UefiToolId = '{0cb3b571-2f2e-4343-a879-d86a476d7215}'
 
 function Test-Admin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -184,8 +195,8 @@ function Update-VmxFile {
         $check = [System.IO.File]::ReadAllText($Path, $encoding)
         $counters = Get-VmxValue -Text $check -Key 'vpmc.enable'
         $vtx = Get-VmxValue -Text $check -Key 'vhv.enable'
-        Write-Host "  Virtualize CPU performance counters (vpmc.enable): $counters"
         Write-Host "  Virtualize Intel VT-x/EPT or AMD-V/RVI (vhv.enable): $vtx"
+        Write-Host "  Virtualize CPU performance counters (vpmc.enable): $counters"
         if ($counters -eq 'FALSE' -and $vtx -eq $Nested) {
             Write-Host '  Result: OK'
             return $true
@@ -200,99 +211,205 @@ function Update-VmxFile {
 }
 
 function Show-VbsStatus {
+    $names = @{
+        1 = 'Credential Guard'
+        2 = 'Memory Integrity'
+        3 = 'System Guard Secure Launch'
+        4 = 'SMM Firmware Measurement'
+        5 = 'Kernel-mode Stack Protection'
+        6 = 'Kernel-mode Stack Protection (audit)'
+        7 = 'Hypervisor-Enforced Paging Translation'
+    }
     try {
         $guard = Get-CimInstance -Namespace 'root\Microsoft\Windows\DeviceGuard' -ClassName Win32_DeviceGuard
         Write-Host "  Virtualization-based security status: $($guard.VirtualizationBasedSecurityStatus) (0 = off, 1 = on but not active, 2 = active)"
-        Write-Host "  Security services that run: $($guard.SecurityServicesRunning -join ', ') (1 = Credential Guard, 2 = Memory Integrity)"
+        $running = @()
+        foreach ($number in @($guard.SecurityServicesRunning)) {
+            if ($number -eq 0) { continue }
+            $name = $names[[int]$number]
+            if (-not $name) { $name = 'unknown' }
+            $running += "$number = $name"
+        }
+        if ($running.Count -eq 0) { $running = @('none') }
+        Write-Host "  Security services that run: $($running -join ', ')"
     } catch {
         Write-Host '  The status of virtualization-based security is not available.'
     }
+}
+
+function Invoke-Native {
+    # Runs a Windows program and shows the result. The result is also in $script:NativeOk.
+    param([string]$Label, [string]$File, [string[]]$Arguments, [switch]$Optional)
+
+    $ErrorActionPreference = 'Continue'
+    $output = ''
+    $code = 1
+    try {
+        $output = (& $File @Arguments 2>&1 | Out-String).Trim()
+        $code = $LASTEXITCODE
+    } catch {
+        $output = $_.Exception.Message
+    }
+    $script:NativeOk = ($code -eq 0)
+    $script:NativeOutput = $output
+    if ($script:NativeOk) {
+        Write-Host "  OK       $Label"
+    } elseif ($Optional) {
+        Write-Host "  SKIPPED  $Label"
+    } else {
+        Write-Host "  FAILED   $Label"
+        if ($output) { Write-Host "           $output" }
+    }
+}
+
+function Get-FreeDriveLetter {
+    $used = @()
+    try {
+        $used = @([System.IO.DriveInfo]::GetDrives() | ForEach-Object { $_.Name.Substring(0, 1).ToUpperInvariant() })
+    } catch { }
+    foreach ($letter in @('S', 'T', 'U', 'V', 'W', 'Y', 'Z', 'R', 'Q', 'P')) {
+        if ($used -notcontains $letter) { return ($letter + ':') }
+    }
+    return $null
 }
 
 function Disable-WindowsHypervisor {
     Write-Host ''
     Write-Host 'Windows: the script now sets the Windows hypervisor to off.'
 
-    & bcdedit.exe /set hypervisorlaunchtype off | Out-Null
-    Write-Host '  Hypervisor start: off'
+    # 1. BitLocker stops for one restart, so that the boot changes cause no recovery key question.
+    $systemDrive = $env:SystemDrive
+    if (-not $systemDrive) { $systemDrive = 'C:' }
+    Invoke-Native -Optional -Label 'BitLocker protection stops for one restart (only if BitLocker is on)' `
+        -File 'manage-bde.exe' -Arguments @('-protectors', '-disable', $systemDrive, '-RebootCount', '1')
 
-    $features = @('Microsoft-Hyper-V-All', 'HypervisorPlatform', 'VirtualMachinePlatform', 'Containers-DisposableClientVM')
+    # 2. Boot settings.
+    Invoke-Native -Label 'Boot setting: hypervisorlaunchtype off' `
+        -File 'bcdedit.exe' -Arguments @('/set', 'hypervisorlaunchtype', 'off')
+    Invoke-Native -Label 'Boot setting: vsmlaunchtype off' `
+        -File 'bcdedit.exe' -Arguments @('/set', 'vsmlaunchtype', 'off')
+
+    # 3. Windows features that use the hypervisor.
+    $features = @('Microsoft-Hyper-V-All', 'HypervisorPlatform', 'VirtualMachinePlatform',
+        'Containers-DisposableClientVM', 'Windows-Defender-ApplicationGuard')
     foreach ($name in $features) {
         try {
             $feature = Get-WindowsOptionalFeature -Online -FeatureName $name -ErrorAction Stop
             if ("$($feature.State)" -eq 'Enabled') {
                 Disable-WindowsOptionalFeature -Online -FeatureName $name -NoRestart -ErrorAction Stop | Out-Null
-                Write-Host "  Windows feature set to off: $name"
+                Write-Host "  OK       Windows feature off: $name"
             }
         } catch { }
     }
 
+    # 4. Registry values for virtualization-based security and the services that use it.
+    $deviceGuard = 'HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard'
+    $policy = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'
     $values = @(
-        @('HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard', 'EnableVirtualizationBasedSecurity'),
-        @('HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity', 'Enabled'),
-        @('HKLM\SYSTEM\CurrentControlSet\Control\Lsa', 'LsaCfgFlags'),
-        @('HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard', 'LsaCfgFlags'),
-        @('HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard', 'EnableVirtualizationBasedSecurity')
+        @($deviceGuard, 'EnableVirtualizationBasedSecurity', '0'),
+        @($deviceGuard, 'RequirePlatformSecurityFeatures', '0'),
+        @($deviceGuard, 'Locked', '0'),
+        @($deviceGuard, 'Mandatory', '0'),
+        @("$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity", 'Enabled', '0'),
+        @("$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity", 'Locked', '0'),
+        @("$deviceGuard\Scenarios\CredentialGuard", 'Enabled', '0'),
+        @("$deviceGuard\Scenarios\SystemGuard", 'Enabled', '0'),
+        @("$deviceGuard\Scenarios\KernelShadowStacks", 'Enabled', '0'),
+        @('HKLM\SYSTEM\CurrentControlSet\Control\Lsa', 'LsaCfgFlags', '0'),
+        @($policy, 'EnableVirtualizationBasedSecurity', '0'),
+        @($policy, 'LsaCfgFlags', '0'),
+        @($policy, 'HypervisorEnforcedCodeIntegrity', '0'),
+        @($policy, 'ConfigureSystemGuardLaunch', '2')
     )
+    $failed = 0
     foreach ($value in $values) {
-        & reg.exe add $value[0] /v $value[1] /t REG_DWORD /d 0 /f | Out-Null
+        $ErrorActionPreference = 'Continue'
+        & reg.exe add $value[0] /v $value[1] /t REG_DWORD /d $value[2] /f 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            $failed++
+            Write-Host "  FAILED   Registry: $($value[0]) $($value[1])"
+        }
+        $ErrorActionPreference = 'Stop'
     }
-    Write-Host '  Virtualization-based security, Memory Integrity, Credential Guard: off'
+    if ($failed -eq 0) {
+        Write-Host '  OK       Registry: virtualization-based security, Memory Integrity, Credential Guard,'
+        Write-Host '           System Guard Secure Launch, Kernel-mode Stack Protection: off'
+    }
+
+    # 5. UEFI lock. This is the Microsoft procedure with SecConfig.efi.
+    #    At the subsequent start, the tool asks to set the functions to off. The F3 key accepts.
+    $windowsFolder = $env:WINDIR
+    if (-not $windowsFolder) { $windowsFolder = 'C:\Windows' }
+    $tool = Join-Path $windowsFolder 'System32\SecConfig.efi'
+    $letter = Get-FreeDriveLetter
+    if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) {
+        Write-Host '  SKIPPED  UEFI lock: SecConfig.efi is not on this computer.'
+    } elseif (-not $letter) {
+        Write-Host '  SKIPPED  UEFI lock: no free drive letter.'
+    } else {
+        Invoke-Native -Label "UEFI lock: connect the EFI system partition as $letter" `
+            -File 'mountvol.exe' -Arguments @($letter, '/s')
+        if ($script:NativeOk) {
+            Invoke-Native -Label 'UEFI lock: copy SecConfig.efi to the EFI system partition' `
+                -File 'cmd.exe' -Arguments @('/c', 'copy', '/y', $tool, "$letter\EFI\Microsoft\Boot\SecConfig.efi")
+            if ($script:NativeOk) {
+                # The entry can be there from an earlier run. Thus this step is optional.
+                Invoke-Native -Optional -Label 'UEFI lock: make the boot entry (not necessary if it is there)' `
+                    -File 'bcdedit.exe' -Arguments @('/create', $UefiToolId, '/d', 'DebugTool', '/application', 'osloader')
+                Invoke-Native -Label 'UEFI lock: set the path of the tool' `
+                    -File 'bcdedit.exe' -Arguments @('/set', $UefiToolId, 'path', '\EFI\Microsoft\Boot\SecConfig.efi')
+                $pathOk = $script:NativeOk
+                Invoke-Native -Label 'UEFI lock: set the options DISABLE-LSA-ISO,DISABLE-VBS' `
+                    -File 'bcdedit.exe' -Arguments @('/set', $UefiToolId, 'loadoptions', 'DISABLE-LSA-ISO,DISABLE-VBS')
+                $optionsOk = $script:NativeOk
+                Invoke-Native -Label 'UEFI lock: set the partition of the tool' `
+                    -File 'bcdedit.exe' -Arguments @('/set', $UefiToolId, 'device', "partition=$letter")
+                $deviceOk = $script:NativeOk
+                if ($pathOk -and $optionsOk -and $deviceOk) {
+                    # The tool runs one time only, at the subsequent start.
+                    Invoke-Native -Label 'UEFI lock: run the tool one time at the subsequent start' `
+                        -File 'bcdedit.exe' -Arguments @('/set', '{bootmgr}', 'bootsequence', $UefiToolId)
+                    $script:UefiToolReady = $script:NativeOk
+                } else {
+                    Write-Host '  SKIPPED  UEFI lock: the tool does not run, because a step before it failed.'
+                }
+            }
+            Invoke-Native -Label "UEFI lock: disconnect $letter" -File 'mountvol.exe' -Arguments @($letter, '/d')
+        }
+    }
+
+    # 6. Show the boot settings.
+    Invoke-Native -Optional -Label 'Read the boot settings' -File 'bcdedit.exe' -Arguments @('/enum', '{current}')
+    foreach ($line in ($script:NativeOutput -split "`r?`n")) {
+        if ($line -match 'hypervisorlaunchtype|vsmlaunchtype') { Write-Host "           $($line.Trim())" }
+    }
 }
 
-function Invoke-HostPart {
-    $marker = $null
-    if ($env:ProgramData) { $marker = Join-Path $env:ProgramData 'fix-vmware-host.txt' }
+function Get-MarkerPath {
+    if ($env:ProgramData) { return (Join-Path $env:ProgramData 'fix-vmware-host.txt') }
+    return $null
+}
 
-    Write-Host ''
-    if (-not (Test-WindowsHypervisor)) {
-        Write-Host 'Windows: the Windows hypervisor is off. No change is necessary.'
-        return
-    }
-
-    # If the changes are already applied, find out if a restart occurred after them.
-    if ($marker -and (Test-Path -LiteralPath $marker)) {
-        $applied = (Get-Item -LiteralPath $marker).LastWriteTime
-        $boot = $null
-        try { $boot = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime } catch { }
-        if ($boot -and $boot -gt $applied) {
-            Write-Host 'Windows: the Windows hypervisor stays on after the changes and a restart.'
-            Write-Host '  This computer does not permit nested virtualization at this time.'
-            Write-Host '  The virtual machine operates without nested virtualization.'
-            Write-Host '  Possible causes: a UEFI lock, a policy of an organization, or Shut down used as an alternative to Restart.'
-            Show-VbsStatus
-            return
-        }
-        Write-Host 'Windows: the changes are applied, but the computer did not restart.'
-        Request-Restart
-        return
-    }
-
-    if (-not (Test-Admin)) {
-        Write-Host 'Windows: the Windows hypervisor is on. Administrator rights are necessary to set it to off.'
-        Write-Host '  A second window opens. Select Yes in the User Account Control window.'
-        $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -HostOnly'
-        try {
-            Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments -Wait
-        } catch {
-            Write-Host '  Administrator rights were not given. Windows has no change.'
-            Write-Host '  The virtual machine operates without nested virtualization.'
-        }
-        return
-    }
-
-    Disable-WindowsHypervisor
-    if ($marker) {
-        try { Set-Content -LiteralPath $marker -Value (Get-Date).ToString('o') } catch { }
-    }
-    Request-Restart
+function Get-MarkerLevel {
+    # 0 = no Windows changes were made. 1 = the first version of the changes. 2 = this version.
+    $marker = Get-MarkerPath
+    if (-not $marker -or -not (Test-Path -LiteralPath $marker)) { return 0 }
+    try {
+        $text = [System.IO.File]::ReadAllText($marker)
+        $match = [regex]::Match($text, '^level=(\d+)')
+        if ($match.Success) { return [int]$match.Groups[1].Value }
+    } catch { }
+    return 1
 }
 
 function Request-Restart {
     Write-Host ''
-    Write-Host 'A restart is necessary before nested virtualization is available.'
+    Write-Host 'A restart is necessary. Use Restart, not Shut down.'
+    if ($script:UefiToolReady) {
+        Write-Host 'IMPORTANT: during the start, a black screen asks about Credential Guard and'
+        Write-Host 'virtualization-based security. Press F3 for each question.'
+    }
     Write-Host 'After the restart, run this script again. It then sets nested virtualization to on.'
-    Write-Host 'You can do the lab before the restart. The virtual machine starts now.'
     $answer = Read-Host 'Save your work. Restart the computer now? Type Y for yes, N for no'
     if ($answer -match '^\s*(y|yes)\s*$') {
         try {
@@ -305,9 +422,74 @@ function Request-Restart {
     }
 }
 
+function Invoke-HostPart {
+    $marker = Get-MarkerPath
+    $level = Get-MarkerLevel
+
+    Write-Host ''
+    if (-not (Test-WindowsHypervisor)) {
+        Write-Host 'Windows: the Windows hypervisor is off. No change is necessary.'
+        return
+    }
+
+    # If this version of the changes is already applied, find out if a restart occurred after them.
+    if ($level -ge $HostLevel -and -not $Force) {
+        $applied = (Get-Item -LiteralPath $marker).LastWriteTime
+        $boot = $null
+        try { $boot = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime } catch { }
+        if ($boot -and $boot -gt $applied) {
+            Write-Host 'Windows: the Windows hypervisor stays on after all the changes and a restart.'
+            Show-VbsStatus
+            Write-Host '  Possible causes:'
+            Write-Host '  - You did not press F3 on the black screen during the start.'
+            Write-Host '  - You used Shut down and not Restart.'
+            Write-Host '  - A policy of an organization applies the settings again.'
+            Write-Host '  - A security setting in the BIOS or UEFI keeps the hypervisor on.'
+            Write-Host '  To apply the Windows changes again, run:'
+            Write-Host '    powershell -ExecutionPolicy Bypass -File .\fix-vmware.ps1 -Force'
+            return
+        }
+        Write-Host 'Windows: the changes are applied, but the computer did not restart.'
+        $script:UefiToolReady = $true
+        Request-Restart
+        return
+    }
+
+    if (-not (Test-Admin)) {
+        Write-Host 'Windows: the Windows hypervisor is on. Administrator rights are necessary to set it to off.'
+        Write-Host '  A second window opens. Select Yes in the User Account Control window.'
+        $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -HostOnly'
+        if ($Force) { $arguments += ' -Force' }
+        try {
+            Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments -Wait
+        } catch {
+            Write-Host '  Administrator rights were not given. Windows has no change.'
+            Write-Host '  Nested virtualization stays off.'
+        }
+        return
+    }
+
+    if ($level -gt 0 -and $level -lt $HostLevel) {
+        Write-Host 'Windows: an older version of this script made a smaller set of changes.'
+        Write-Host '  The script now makes the full set of changes.'
+    }
+    Show-VbsStatus
+    Disable-WindowsHypervisor
+    if ($marker) {
+        try {
+            Set-Content -LiteralPath $marker -Value ("level=$HostLevel date=" + (Get-Date).ToString('o'))
+        } catch { }
+    }
+    Request-Restart
+}
+
 # ---------------------------------------------------------------------------
 # Main part
 # ---------------------------------------------------------------------------
+
+$script:NativeOk = $false
+$script:NativeOutput = ''
+$script:UefiToolReady = $false
 
 Write-Host 'fix-vmware.ps1'
 
@@ -316,10 +498,12 @@ if (-not $HostOnly) {
     $hypervisor = Test-WindowsHypervisor
     $nested = 'FALSE'
     if ($hypervisor) {
-        Write-Host 'The Windows hypervisor is on. The virtual machine gets nested virtualization: off.'
+        Write-Host 'The Windows hypervisor is on. Nested virtualization is not available at this time.'
+        Write-Host 'The virtual machine gets nested virtualization: off, so that it can start.'
     } elseif (Test-FirmwareVirtualization) {
         $nested = 'TRUE'
-        Write-Host 'The Windows hypervisor is off. The virtual machine gets nested virtualization: on.'
+        Write-Host 'The Windows hypervisor is off. Nested virtualization is available.'
+        Write-Host 'The virtual machine gets nested virtualization: on.'
     } else {
         Write-Host 'VT-x or AMD-V is off in the BIOS or UEFI. Set it to on in the BIOS or UEFI.'
         Write-Host 'The virtual machine gets nested virtualization: off.'
@@ -343,7 +527,7 @@ if (-not $HostOnly) {
         Write-Host ''
         Write-Host 'No virtual machine found.'
         Write-Host 'Run the script again with the path of the .vmx file:'
-        Write-Host '  powershell -ExecutionPolicy Bypass -File .\fix-vmware.ps1 -VmxPath "C:\path\to\PNET_4.2.10.vmx"'
+        Write-Host '  powershell -ExecutionPolicy Bypass -File .\fix-vmware.ps1 -VmxPath "C:\path\to\PNET.vmx"'
     } else {
         $good = 0
         foreach ($target in $targets) {
