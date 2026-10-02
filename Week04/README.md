@@ -9,7 +9,7 @@ PNETLab VM IP: `192.168.113.128` (network `192.168.113.0/24`)
 
 ## 1. Windows prerequisites
 
-1. Install [PuTTY](https://www.putty.org/).
+1. Install [PuTTY](putty-64bit-0.85-installer.msi).
 2. Install [Git Bash](https://git-scm.com/downloads).
 3. Register PuTTY as the handler for `telnet://` links so PNETLab can open node consoles. Run in **PowerShell**:
 
