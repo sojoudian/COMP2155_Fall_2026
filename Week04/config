@@ -1,7 +1,0 @@
-Host tunnels.host
-  KexAlgorithms +diffie-hellman-group14-sha1
-  HostKeyAlgorithms +ssh-rsa
-  PubkeyAcceptedAlgorithms +ssh-rsa
-  Ciphers +aes128-cbc
-  IdentityFile ~/.ssh/id_rsa
-  IdentitiesOnly yes
