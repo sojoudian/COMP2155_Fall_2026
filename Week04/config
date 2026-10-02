@@ -1,0 +1,11 @@
+Host 192.168.113.*
+  KexAlgorithms +diffie-hellman-group14-sha1
+  HostKeyAlgorithms +ssh-rsa
+  PubkeyAcceptedAlgorithms +ssh-rsa
+  Ciphers +aes128-cbc
+
+Host tunnels.host
+  KexAlgorithms +diffie-hellman-group14-sha1
+  HostKeyAlgorithms +ssh-rsa
+  PubkeyAcceptedAlgorithms +ssh-rsa
+  Ciphers +aes128-cbc
