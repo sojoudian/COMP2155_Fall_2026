@@ -34,15 +34,15 @@ reg add "HKCU\Software\Classes\telnet\shell\open\command" /ve /d '\"C:\Program F
 
 3. Click **Edit virtual machine settings**. Under **Processors**, check **Virtualize Intel VT-x/EPT or AMD-V/RVI**. Leave **Network Adapter** on **NAT**.
 
-![VMware virtualization settings](https://pnetlab.com/api/uploader/public/read?file=https://pnetlab.com/Local/pages/page_content/1/image_7.png)
+![Edit virtual machine settings](https://github.com/user-attachments/assets/6f6fa7fb-ae4f-411d-9b26-1df87c7cd3cb)
 
 4. Power on the VM. The console shows the VM's IP address (`192.168.113.128` in this lab). Log in as `root` / `pnet` and complete the first-boot setup, keeping the defaults.
 
-![PNETLab console with IP address](https://pnetlab.com/api/uploader/public/read?file=https://pnetlab.com/Local/pages/page_content/1/image_6.png)
+![PNETLab console with IP address](https://github.com/user-attachments/assets/ef5705e6-2552-4686-ae7b-e14ff812365a)
 
 5. Open `http://192.168.113.128` in a browser, choose **Online Mode**, click **Sign Up** to create a PNETLab account, then log in.
 
-![Online and Offline mode selection](https://pnetlab.com/api/uploader/public/read?file=https://pnetlab.com/Local/pages/page_content/1/image_8.png)
+![Online and Offline mode selection](https://github.com/user-attachments/assets/0f70a17c-8e46-4127-99de-7424920da2e8)
 
 ## 4. Download the router image (on the PNETLab VM)
 
@@ -244,4 +244,4 @@ ping 10.0.0.2
 
 ## Image credits
 
-Screenshots are loaded from their original sources: the [PNETLab download page](https://pnetlab.com/pages/download) and [sk4vac/PNETLab-Setup-VMWare](https://github.com/sk4vac/PNETLab-Setup-VMWare).
+Screenshots are loaded from their original source: [sk4vac/PNETLab-Setup-VMWare](https://github.com/sk4vac/PNETLab-Setup-VMWare).
