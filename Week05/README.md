@@ -8,6 +8,84 @@ This continues the Week 04 lab (two Cisco 7200 routers with SSH key login). It a
 | R2 | fa1/0 | 192.168.113.12 |
 | R4 (CSR 1000v) | Gi1 | 192.168.113.14 |
 
+## 0. Turn on nested virtualization with `fix-vmware.ps1`
+
+Do this step first. It uses the script [`fix-vmware.ps1`](../Week04/fix-vmware.ps1) from the Week 04 folder.
+
+### Why nested virtualization is necessary
+
+- PNETLab is a virtual machine in VMware. The CSR 1000v (R4) is a QEMU node that runs inside the PNETLab VM. This is a virtual machine inside a virtual machine: nested virtualization.
+- QEMU uses KVM, and KVM needs the processor functions VT-x (Intel) or AMD-V (AMD) inside the PNETLab VM.
+- VMware gives these functions to the VM only when two conditions are true:
+  - The VM setting **Virtualize Intel VT-x/EPT or AMD-V/RVI** is on.
+  - The Windows hypervisor is off.
+- Without nested virtualization, R4 does not start.
+- The Cisco 7200 routers (R1, R2) from Week 04 use Dynamips, which does not need these functions. That is why Week 04 works without this step.
+
+### What the script does
+
+- **Part A** changes the `.vmx` file of the PNETLab VM:
+  - It sets **Virtualize Intel VT-x/EPT or AMD-V/RVI** to on, when this is possible.
+  - It sets **Virtualize CPU performance counters** to off.
+  - It keeps a backup copy with the extension `.bak`.
+- **Part B** sets the Windows hypervisor to off, and the functions that use it: Hyper-V, virtualization-based security, Memory Integrity, and Credential Guard. This part needs administrator rights and one restart.
+- **Part C** finds antivirus programs (Avast, AVG, Kaspersky) that can use VT-x or AMD-V. It shows the setting to change.
+
+### How to run it
+
+1. Download `fix-vmware.ps1` from the Week04 folder on GitHub: open the file and select **Download raw file**. Keep it in your `Downloads` folder.
+2. Shut down the PNETLab VM and close VMware. If VMware is open, the script waits until you close it.
+3. Open **PowerShell**. You do not need administrator rights for this window. Run:
+
+```powershell
+cd $HOME\Downloads
+powershell -ExecutionPolicy Bypass -File .\fix-vmware.ps1
+```
+
+`-ExecutionPolicy Bypass` lets Windows run the downloaded script for this one time. It does not change the execution policy of the computer.
+
+4. If the Windows hypervisor is on, a second window opens. Select **Yes** in the User Account Control window.
+5. When the script asks for a restart, save your work and type `Y`. Use **Restart**, not **Shut down**.
+6. During the start, a black screen asks about Credential Guard and virtualization-based security. Press **F3** for each question.
+7. After the restart, run the same two commands again. The script now sets nested virtualization to on.
+8. Make sure that the output shows these lines:
+
+```
+  Virtualize Intel VT-x/EPT or AMD-V/RVI (vhv.enable): TRUE
+  Virtualize CPU performance counters (vpmc.enable): FALSE
+  Result: OK
+```
+
+9. Start the PNETLab VM, log in as `root`, and run:
+
+```bash
+egrep -c '(vmx|svm)' /proc/cpuinfo
+```
+
+A number larger than `0` means that nested virtualization operates.
+
+Do not use the option `-NoNested` for Week 05. This option sets nested virtualization to off.
+
+### Options
+
+| Option | Use |
+|--------|-----|
+| `-VmxPath "C:\path\to\PNET.vmx"` | Give the path of the `.vmx` file if the script does not find the VM. |
+| `-Force` | Apply the Windows changes again, for example after a Windows update sets the hypervisor to on again. |
+| `-VmOnly` | Do only part A (the `.vmx` file). |
+| `-HostOnly` | Do only part B (Windows). |
+| `-NoNested` | Set nested virtualization to off. Not for Week 05. |
+
+### Important
+
+- Part B decreases the security of your computer. WSL 2, Docker Desktop, Windows Sandbox, and Hyper-V virtual machines stop.
+- BitLocker stops for one restart only, so that Windows does not ask for the recovery key.
+- The script writes a log file for each run in `C:\ProgramData\fix-vmware`.
+- The script cannot correct these conditions:
+  - VT-x or AMD-V is off in the BIOS or UEFI.
+  - A domain Group Policy or Intune sets the Windows settings again.
+  - An antivirus program uses VT-x or AMD-V. Set its hardware virtualization setting to off.
+
 ## 1. Download the CSR 1000v image (on the PNETLab VM)
 
 ```bash
