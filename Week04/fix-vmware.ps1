@@ -25,6 +25,7 @@
 #        With -NoNested, it always goes off.
 #      - "Virtualize CPU performance counters" goes off. Nested virtualization does not use it.
 #      - The script keeps the initial file as a backup with the extension .bak.
+#      - The script does not change a suspended virtual machine, because it can fail to resume.
 #   B. Windows (needs Administrator rights and one restart). The script sets these items to off:
 #      - The Windows hypervisor and the virtual secure mode (boot settings).
 #      - Hyper-V, Windows Hypervisor Platform, Virtual Machine Platform, Windows Sandbox,
@@ -37,8 +38,13 @@
 #      - The UEFI lock of virtualization-based security and Credential Guard
 #        (the Microsoft procedure with SecConfig.efi, which needs the F3 key at the start).
 #      - BitLocker protection stops for one restart only, to prevent a recovery key question.
+#      If a Windows update sets the hypervisor to on again, run the script again.
+#      The script finds the changed settings and applies the changes again.
 #   C. Antivirus programs: the script finds Avast, AVG, and Kaspersky. These programs can use
 #      VT-x or AMD-V, and then VMware cannot use it. The script shows the setting to set to off.
+#
+# At the start, the script tells you if a domain or Intune manages the computer.
+# The script writes a log file for each run in C:\ProgramData\fix-vmware.
 #
 # Effects of part B:
 #   - The security of the computer decreases.
@@ -72,6 +78,36 @@ $ErrorActionPreference = 'Stop'
 # The number of the Windows changes. A higher number has more changes.
 $HostLevel = 3
 $UefiToolId = '{0cb3b571-2f2e-4343-a879-d86a476d7215}'
+
+# The Windows features that use the hypervisor. Part B sets them to off.
+$HostFeatures = @('Microsoft-Hyper-V-All', 'HypervisorPlatform', 'VirtualMachinePlatform',
+    'Containers-DisposableClientVM', 'Windows-Defender-ApplicationGuard')
+
+# The registry values that part B sets: key, name, value.
+$DeviceGuardKey = 'HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard'
+$DeviceGuardPolicyKey = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'
+$HostRegistryValues = @(
+    @($DeviceGuardKey, 'EnableVirtualizationBasedSecurity', '0'),
+    @($DeviceGuardKey, 'RequirePlatformSecurityFeatures', '0'),
+    @($DeviceGuardKey, 'Locked', '0'),
+    @($DeviceGuardKey, 'Mandatory', '0'),
+    @("$DeviceGuardKey\Scenarios\HypervisorEnforcedCodeIntegrity", 'Enabled', '0'),
+    @("$DeviceGuardKey\Scenarios\HypervisorEnforcedCodeIntegrity", 'Locked', '0'),
+    @("$DeviceGuardKey\Scenarios\CredentialGuard", 'Enabled', '0'),
+    @("$DeviceGuardKey\Scenarios\SystemGuard", 'Enabled', '0'),
+    @("$DeviceGuardKey\Scenarios\KernelShadowStacks", 'Enabled', '0'),
+    @("$DeviceGuardKey\Scenarios\SecureBiometrics", 'Enabled', '0'),
+    @('HKLM\SYSTEM\CurrentControlSet\Control\Lsa', 'LsaCfgFlags', '0'),
+    @($DeviceGuardPolicyKey, 'EnableVirtualizationBasedSecurity', '0'),
+    @($DeviceGuardPolicyKey, 'LsaCfgFlags', '0'),
+    @($DeviceGuardPolicyKey, 'HypervisorEnforcedCodeIntegrity', '0'),
+    @($DeviceGuardPolicyKey, 'ConfigureSystemGuardLaunch', '2')
+)
+
+# The local Group Policy values for virtualization-based security (in Registry.pol).
+# DeployConfigCIPolicy and ConfigCIPolicyFilePath are for Application Control. The script keeps them.
+$VbsPolicyKey = 'Software\Policies\Microsoft\Windows\DeviceGuard'
+$VbsPolicyKeep = @('DeployConfigCIPolicy', 'ConfigCIPolicyFilePath')
 
 function Test-Admin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -188,6 +224,19 @@ function Update-VmxFile {
         # This encoding reads and writes each byte without a change.
         $encoding = [System.Text.Encoding]::GetEncoding(28591)
         $before = [System.IO.File]::ReadAllText($Path, $encoding)
+
+        # A suspended virtual machine has its state in a .vmss file. checkpoint.vmState gives that file.
+        # VMware lets you change the processor settings only when the virtual machine is powered off.
+        $state = Get-VmxValue -Text $before -Key 'checkpoint.vmState'
+        if ($state -ne '' -and $state -ne '(not set)') {
+            $stateFile = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Path), $state)
+            if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+                Write-Host '  Result: NOT OK. The virtual machine is suspended. The script did not change the file.'
+                Write-Host '  Start the virtual machine in VMware, and then shut it down. Do not use Suspend.'
+                Write-Host '  Close VMware and run the script again.'
+                return $false
+            }
+        }
 
         $after = Set-VmxValue -Text $before -Key 'vpmc.enable' -Value 'FALSE'
         $after = Set-VmxValue -Text $after -Key 'vhv.enable' -Value $Nested
@@ -372,7 +421,6 @@ function Remove-LocalVbsPolicy {
     # The local Group Policy "Turn On Virtualization Based Security" keeps its values in Registry.pol.
     # Windows writes these values to the registry again when it reads the Group Policy.
     # The script removes them, so the settings go to "Not configured".
-    # DeployConfigCIPolicy and ConfigCIPolicyFilePath are for Application Control. The script keeps them.
     $windowsFolder = $env:WINDIR
     if (-not $windowsFolder) { $windowsFolder = 'C:\Windows' }
     $polFile = Join-Path $windowsFolder 'System32\GroupPolicy\Machine\Registry.pol'
@@ -382,8 +430,7 @@ function Remove-LocalVbsPolicy {
         $removed = 0
         if (Test-Path -LiteralPath $polFile -PathType Leaf) {
             $result = Remove-PolEntries -Bytes ([System.IO.File]::ReadAllBytes($polFile)) `
-                -Key 'Software\Policies\Microsoft\Windows\DeviceGuard' `
-                -KeepValues @('DeployConfigCIPolicy', 'ConfigCIPolicyFilePath')
+                -Key $VbsPolicyKey -KeepValues $VbsPolicyKeep
             $removed = $result.Removed
         }
         if ($removed -eq 0) {
@@ -457,6 +504,52 @@ function Show-VtxPrograms {
     Write-Host '  Then restart the computer (Restart, not Shut down).'
 }
 
+function Get-RegistryValue {
+    # Returns the value, or $null if the key or the value is not there.
+    param([string]$Key, [string]$Name)
+
+    try {
+        return (Get-ItemProperty -LiteralPath ('Registry::' + $Key) -Name $Name -ErrorAction Stop).$Name
+    } catch {
+        return $null
+    }
+}
+
+function Show-ManagedPolicy {
+    # A domain Group Policy or Intune can set virtualization-based security to on again.
+    # No script can correct this. Only the IT department of the organization can change it.
+    $found = @()
+    try {
+        $computer = Get-CimInstance -ClassName Win32_ComputerSystem
+        if ($computer.PartOfDomain) { $found += "The computer is in the domain `"$($computer.Domain)`"." }
+    } catch { }
+    try {
+        # Intune enrollments have the provider "MS DM Server".
+        $enrollments = @(Get-ChildItem -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Enrollments' -ErrorAction Stop |
+            Where-Object { (Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue).ProviderID -eq 'MS DM Server' })
+        if ($enrollments.Count -gt 0) { $found += 'The computer is managed by Intune.' }
+    } catch { }
+    # Device management (MDM) keeps the policy values that it applies in PolicyManager.
+    $names = @('EnableVirtualizationBasedSecurity', 'RequirePlatformSecurityFeatures', 'LsaCfgFlags',
+        'ConfigureSystemGuardLaunch', 'HypervisorEnforcedCodeIntegrity')
+    foreach ($area in @('DeviceGuard', 'VirtualizationBasedTechnology')) {
+        foreach ($name in $names) {
+            $value = Get-RegistryValue -Key "HKLM\SOFTWARE\Microsoft\PolicyManager\current\device\$area" -Name $name
+            if ($null -ne $value) { $found += "Device management (for example, Intune) sets $area $name = $value." }
+        }
+    }
+
+    Write-Host ''
+    if ($found.Count -eq 0) {
+        Write-Host 'Organization: no domain and no Intune found.'
+        return
+    }
+    Write-Host 'Organization: an organization manages this computer.'
+    foreach ($line in $found) { Write-Host "  $line" }
+    Write-Host '  A domain Group Policy or Intune can set virtualization-based security to on again.'
+    Write-Host '  No script can correct this. If the Windows hypervisor stays on, speak to the IT department.'
+}
+
 function Disable-WindowsHypervisor {
     Write-Host ''
     Write-Host 'Windows: the script now sets the Windows hypervisor to off.'
@@ -475,9 +568,7 @@ function Disable-WindowsHypervisor {
 
     # 3. Windows features that use the hypervisor.
     #    A feature that is not on this edition of Windows causes an error from Get. The script ignores it.
-    $features = @('Microsoft-Hyper-V-All', 'HypervisorPlatform', 'VirtualMachinePlatform',
-        'Containers-DisposableClientVM', 'Windows-Defender-ApplicationGuard')
-    foreach ($name in $features) {
+    foreach ($name in $HostFeatures) {
         $feature = $null
         try { $feature = Get-WindowsOptionalFeature -Online -FeatureName $name -ErrorAction Stop } catch { }
         if ($feature -and "$($feature.State)" -eq 'Enabled') {
@@ -495,27 +586,8 @@ function Disable-WindowsHypervisor {
     Remove-LocalVbsPolicy
 
     # 5. Registry values for virtualization-based security and the services that use it.
-    $deviceGuard = 'HKLM\SYSTEM\CurrentControlSet\Control\DeviceGuard'
-    $policy = 'HKLM\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'
-    $values = @(
-        @($deviceGuard, 'EnableVirtualizationBasedSecurity', '0'),
-        @($deviceGuard, 'RequirePlatformSecurityFeatures', '0'),
-        @($deviceGuard, 'Locked', '0'),
-        @($deviceGuard, 'Mandatory', '0'),
-        @("$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity", 'Enabled', '0'),
-        @("$deviceGuard\Scenarios\HypervisorEnforcedCodeIntegrity", 'Locked', '0'),
-        @("$deviceGuard\Scenarios\CredentialGuard", 'Enabled', '0'),
-        @("$deviceGuard\Scenarios\SystemGuard", 'Enabled', '0'),
-        @("$deviceGuard\Scenarios\KernelShadowStacks", 'Enabled', '0'),
-        @("$deviceGuard\Scenarios\SecureBiometrics", 'Enabled', '0'),
-        @('HKLM\SYSTEM\CurrentControlSet\Control\Lsa', 'LsaCfgFlags', '0'),
-        @($policy, 'EnableVirtualizationBasedSecurity', '0'),
-        @($policy, 'LsaCfgFlags', '0'),
-        @($policy, 'HypervisorEnforcedCodeIntegrity', '0'),
-        @($policy, 'ConfigureSystemGuardLaunch', '2')
-    )
     $failed = 0
-    foreach ($value in $values) {
+    foreach ($value in $HostRegistryValues) {
         $ErrorActionPreference = 'Continue'
         & reg.exe add $value[0] /v $value[1] /t REG_DWORD /d $value[2] /f 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
@@ -579,6 +651,53 @@ function Disable-WindowsHypervisor {
     }
 }
 
+function Get-ChangedHostSettings {
+    # Returns the settings of part B that do not have the value that part B gives them.
+    # Needs Administrator rights. A policy value that is not there is correct ("Not configured").
+    $changed = @()
+
+    $ErrorActionPreference = 'Continue'
+    $output = ''
+    $code = 1
+    try {
+        $output = (& bcdedit.exe /enum '{current}' 2>&1 | Out-String)
+        $code = $LASTEXITCODE
+    } catch { }
+    $ErrorActionPreference = 'Stop'
+    if ($code -eq 0) {
+        foreach ($name in @('hypervisorlaunchtype', 'vsmlaunchtype')) {
+            if ($output -notmatch "(?im)^[ \t]*$name[ \t]+Off\b") { $changed += "Boot setting: $name" }
+        }
+    }
+
+    foreach ($name in $HostFeatures) {
+        $feature = $null
+        try { $feature = Get-WindowsOptionalFeature -Online -FeatureName $name -ErrorAction Stop } catch { }
+        if ($feature -and "$($feature.State)" -eq 'Enabled') { $changed += "Windows feature: $name" }
+    }
+
+    foreach ($value in $HostRegistryValues) {
+        $current = Get-RegistryValue -Key $value[0] -Name $value[1]
+        if ($null -eq $current) {
+            if ($value[0] -ne $DeviceGuardPolicyKey) { $changed += "Registry: $($value[0]) $($value[1]) is not there" }
+        } elseif ("$current" -ne $value[2]) {
+            $changed += "Registry: $($value[0]) $($value[1]) = $current"
+        }
+    }
+
+    $windowsFolder = $env:WINDIR
+    if (-not $windowsFolder) { $windowsFolder = 'C:\Windows' }
+    $polFile = Join-Path $windowsFolder 'System32\GroupPolicy\Machine\Registry.pol'
+    try {
+        if (Test-Path -LiteralPath $polFile -PathType Leaf) {
+            $result = Remove-PolEntries -Bytes ([System.IO.File]::ReadAllBytes($polFile)) -Key $VbsPolicyKey -KeepValues $VbsPolicyKeep
+            if ($result.Removed -gt 0) { $changed += 'Local Group Policy: settings for virtualization-based security' }
+        }
+    } catch { }
+
+    return $changed
+}
+
 function Get-MarkerPath {
     if ($env:ProgramData) { return (Join-Path $env:ProgramData 'fix-vmware-host.txt') }
     return $null
@@ -596,6 +715,48 @@ function Get-MarkerLevel {
     return 1
 }
 
+function Get-MarkerTime {
+    # The time of the last Windows changes.
+    try {
+        return (Get-Item -LiteralPath (Get-MarkerPath)).LastWriteTime
+    } catch {
+        return $null
+    }
+}
+
+function Get-LastBootTime {
+    try {
+        return (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime
+    } catch {
+        return $null
+    }
+}
+
+function Start-Log {
+    # The log file keeps the output, also when a restart closes the window.
+    # Each run has its own file, because two windows of the script can run at the same time.
+    $folder = 'C:\ProgramData\fix-vmware'
+    if ($env:ProgramData) { $folder = Join-Path $env:ProgramData 'fix-vmware' }
+    $path = Join-Path $folder ('fix-vmware-' + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss') + "-$PID.log")
+    try {
+        if (-not (Test-Path -LiteralPath $folder -PathType Container)) {
+            New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        }
+        Start-Transcript -LiteralPath $path -Force | Out-Null
+        $script:LogPath = $path
+        $script:LogActive = $true
+    } catch {
+        $script:LogPath = $null
+    }
+}
+
+function Stop-Log {
+    if ($script:LogActive) {
+        try { Stop-Transcript | Out-Null } catch { }
+        $script:LogActive = $false
+    }
+}
+
 function Request-Restart {
     Write-Host ''
     Write-Host 'A restart is necessary. Use Restart, not Shut down.'
@@ -604,8 +765,11 @@ function Request-Restart {
         Write-Host 'virtualization-based security. Press F3 for each question.'
     }
     Write-Host 'After the restart, run this script again. It then sets nested virtualization to on.'
+    if ($script:LogPath) { Write-Host "The log file is: $($script:LogPath)" }
     $answer = Read-Host 'Save your work. Restart the computer now? Type Y for yes, N for no'
     if ($answer -match '^\s*(y|yes)\s*$') {
+        # Stop the log before the restart, so that the file is complete.
+        Stop-Log
         try {
             Restart-Computer
         } catch {
@@ -614,6 +778,29 @@ function Request-Restart {
     } else {
         Write-Host 'No restart. Restart the computer later (Restart, not Shut down).'
     }
+}
+
+function Show-StaysOn {
+    param([string[]]$Changed)
+
+    Write-Host 'Windows: the Windows hypervisor stays on after all the changes and a restart.'
+    Show-VbsStatus
+    if ($Changed.Count -gt 0) {
+        Write-Host '  These settings changed again after the restart:'
+        foreach ($item in $Changed) { Write-Host "  - $item" }
+    }
+    Write-Host '  Possible causes:'
+    Write-Host '  - You did not press F3 on the black screen during the start.'
+    Write-Host '  - You used Shut down and not Restart.'
+    Write-Host '  - Windows Hello Enhanced Sign-in Security is on. Open Settings > Accounts > Sign-in options.'
+    Write-Host '    If you see "Sign in with an external camera or fingerprint reader", set it to On.'
+    Write-Host '    This sets Enhanced Sign-in Security to off. Then restart the computer.'
+    Write-Host '  - A policy of an organization applies the settings again.'
+    Write-Host '  - A security setting in the BIOS or UEFI keeps the hypervisor on.'
+    Show-ManagedPolicy
+    Write-Host ''
+    Write-Host 'To apply the Windows changes again, run:'
+    Write-Host '  powershell -ExecutionPolicy Bypass -File .\fix-vmware.ps1 -Force'
 }
 
 function Invoke-HostPart {
@@ -627,30 +814,20 @@ function Invoke-HostPart {
     }
 
     # If this version of the changes is already applied, find out if a restart occurred after them.
+    $applied = $null
     if ($level -ge $HostLevel -and -not $Force) {
-        $applied = (Get-Item -LiteralPath $marker).LastWriteTime
-        $boot = $null
-        try { $boot = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime } catch { }
-        if ($boot -and $boot -gt $applied) {
-            Write-Host 'Windows: the Windows hypervisor stays on after all the changes and a restart.'
-            Show-VbsStatus
-            Write-Host '  Possible causes:'
-            Write-Host '  - You did not press F3 on the black screen during the start.'
-            Write-Host '  - You used Shut down and not Restart.'
-            Write-Host '  - A policy of an organization applies the settings again.'
-            Write-Host '  - A security setting in the BIOS or UEFI keeps the hypervisor on.'
-            Write-Host '  To apply the Windows changes again, run:'
-            Write-Host '    powershell -ExecutionPolicy Bypass -File .\fix-vmware.ps1 -Force'
+        $applied = Get-MarkerTime
+        $boot = Get-LastBootTime
+        if (-not ($applied -and $boot -and $boot -gt $applied)) {
+            Write-Host 'Windows: the changes are applied, but the computer did not restart.'
+            $script:UefiToolReady = $true
+            Request-Restart
             return
         }
-        Write-Host 'Windows: the changes are applied, but the computer did not restart.'
-        $script:UefiToolReady = $true
-        Request-Restart
-        return
     }
 
     if (-not (Test-Admin)) {
-        Write-Host 'Windows: the Windows hypervisor is on. Administrator rights are necessary to set it to off.'
+        Write-Host 'Windows: the Windows hypervisor is on. Administrator rights are necessary.'
         Write-Host '  A second window opens. Select Yes in the User Account Control window.'
         $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -HostOnly'
         if ($Force) { $arguments += ' -Force' }
@@ -661,6 +838,23 @@ function Invoke-HostPart {
             Write-Host '  Nested virtualization stays off.'
         }
         return
+    }
+
+    if ($applied) {
+        # A restart occurred after the changes, but the hypervisor is on.
+        # A Windows update can change the settings days or weeks after the last run.
+        # Then the script applies the changes again. If the settings changed in less than one day,
+        # something changes them at each start. Then the script only shows the possible causes.
+        $changed = @(Get-ChangedHostSettings)
+        if ($changed.Count -gt 0 -and ((Get-Date) - $applied).TotalHours -ge 24) {
+            Write-Host 'Windows: the Windows hypervisor is on again. These settings changed after the last run,'
+            Write-Host '  for example because of a Windows update:'
+            foreach ($item in $changed) { Write-Host "  - $item" }
+            Write-Host '  The script applies the changes again.'
+        } else {
+            Show-StaysOn -Changed $changed
+            return
+        }
     }
 
     if ($level -gt 0 -and $level -lt $HostLevel) {
@@ -684,6 +878,20 @@ function Invoke-HostPart {
 $script:NativeOk = $false
 $script:NativeOutput = ''
 $script:UefiToolReady = $false
+$script:LogPath = $null
+$script:LogActive = $false
+
+# An unexpected error stops the script. The message stays in the log file, and the
+# administrator window stays open until you press Enter.
+trap {
+    Write-Host ''
+    Write-Host "ERROR: $($_.Exception.Message)"
+    if ($_.InvocationInfo) { Write-Host "  Script line: $($_.InvocationInfo.ScriptLineNumber)" }
+    if ($script:LogPath) { Write-Host "  The log file is: $($script:LogPath)" }
+    Stop-Log
+    if ($HostOnly) { [void](Read-Host 'Press Enter to close this window') }
+    exit 1
+}
 
 # A 32-bit PowerShell on a 64-bit Windows cannot use bcdedit.exe and cannot change the Windows features.
 # The script then starts again in the 64-bit PowerShell.
@@ -698,7 +906,15 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
     exit $LASTEXITCODE
 }
 
+Start-Log
 Write-Host 'fix-vmware.ps1'
+if ($script:LogPath) { Write-Host "Log file: $($script:LogPath)" }
+
+# A policy of an organization can undo part B. The script tells this at the start.
+if (-not $HostOnly -and -not $VmOnly -and -not $NoNested) {
+    Show-ManagedPolicy
+    Write-Host ''
+}
 
 # Part A: the virtual machine.
 if (-not $HostOnly) {
@@ -759,6 +975,8 @@ if (-not $VmOnly -and -not $NoNested) {
 
 Write-Host ''
 Write-Host 'The script is complete.'
+if ($script:LogPath) { Write-Host "The log file is: $($script:LogPath)" }
+Stop-Log
 if ($HostOnly) {
     [void](Read-Host 'Press Enter to close this window')
 }
