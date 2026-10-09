@@ -1,1 +1,1 @@
-bash -x "$(which ishare2)" pull qemu 102 --overwrite 2>&1 | grep -o 'https\?://[^ "'"'"']*' | sort -u
+URL=$(bash -x "$(which ishare2)" pull qemu 102 --overwrite 2>&1 | grep -o 'https\?://[^ "'"'"']*qcow2[^ "'"'"']*' | head -1); D=/opt/unetlab/addons/qemu/csr1000vng-universalk9.17.03.08a-serial; mkdir -p $D && cd $D && wget --content-disposition "$URL" && /opt/unetlab/wrappers/unl_wrapper -a fixpermissions
