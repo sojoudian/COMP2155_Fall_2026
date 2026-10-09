@@ -95,7 +95,7 @@ egrep -c '(vmx|svm)' /proc/cpuinfo
 
 The result must be larger than `0`. If it is `0`, do step 4 again.
 
-3. Open `http://192.168.113.128` in a browser, choose **Online Mode**, click **Sign Up** to create a PNETLab account, then log in.
+3. Open `http://192.168.113.128` in a browser, choose **Offline Mode**, click **Sign Up** to create a PNETLab account, then log in.
 
 ![Online and Offline mode selection](https://github.com/user-attachments/assets/0f70a17c-8e46-4127-99de-7424920da2e8)
 
