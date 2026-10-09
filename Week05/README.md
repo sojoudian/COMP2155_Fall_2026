@@ -37,7 +37,6 @@ reg add "HKCU\Software\Classes\telnet\shell\open\command" /ve /d '\"C:\Program F
 ![Import dialog](https://github.com/user-attachments/assets/3b390792-05ae-4f7b-95df-46b8bf31baaf)
 
 3. Click **Edit virtual machine settings**:
-   - Under **Processors**, check **Virtualize Intel VT-x/EPT or AMD-V/RVI**.
    - Under **Memory**, give the VM at least 14 GB. Each CSR 1000v uses 6 GB.
    - Leave **Network Adapter** on **NAT**.
 
@@ -55,13 +54,7 @@ Do this step before you start the PNETLab VM. It uses the script [`fix-vmware.ps
 - QEMU needs VT-x (Intel) or AMD-V (AMD) inside the PNETLab VM. VMware gives it only when the VM setting is on and the Windows hypervisor is off.
 - Without nested virtualization, the CSR 1000v routers do not start.
 
-### What the script does
-
-- It turns on nested virtualization in the `.vmx` file of the PNETLab VM, and turns off the CPU performance counters. It keeps a `.bak` copy of the file.
-- It turns off the Windows hypervisor (Hyper-V, Memory Integrity, Credential Guard). This needs one restart.
-- It shows a warning if an antivirus program (Avast, AVG, Kaspersky) uses VT-x or AMD-V.
-
-After this change, WSL 2, Docker Desktop, Windows Sandbox, and Hyper-V VMs do not operate.
+**Warning:** After the script runs, WSL 2, Docker Desktop, Windows Sandbox, and Hyper-V VMs do not operate.
 
 ### How to run it
 
@@ -112,6 +105,7 @@ The result must be larger than `0`. If it is `0`, do step 4 again.
 wget -qO- https://ishare2.sh/install | sh
 ishare2 search csr
 ishare2 pull qemu 102
+/opt/unetlab/wrappers/unl_wrapper -a fixpermissions
 ```
 
 `102` is the ID of `csr1000vng-universalk9.17.03.08a-serial` (IOS XE 17.03.08a, 1.1 GiB). Use the ID from your own search output.
@@ -160,27 +154,7 @@ end
 wr
 ```
 
-**R2**
-
-```
-enable
-conf t
-no service config
-hostname R2
-ip domain-name lab.local
-int gi1
- ip address 192.168.113.12 255.255.255.0
- no shut
-exit
-crypto key generate rsa modulus 2048
-ip ssh version 2
-username admin privilege 15 secret cisco123
-line vty 0 4
- login local
- transport input ssh
-end
-wr
-```
+For R2, use the same commands with `hostname R2` and `192.168.113.12`.
 
 Check the interfaces with `show ip int br`.
 
@@ -278,7 +252,6 @@ What each part does:
 
 ## 15. `exec_command()` and `run()` with `invoke_shell()`
 
-- `exec_command()` runs **one** command. Cisco IOS normally accepts only one per connection, so several commands mean several connections.
 - `invoke_shell()` opens an interactive session, like typing in PuTTY. Many commands can run in one session, including configuration mode. The `run()` helper sends a command, waits one second, and returns what the router printed.
 
 `paramiko_examples.py`:
@@ -310,25 +283,18 @@ def run(shell, command):
     return shell.recv(65535).decode()
 
 
-# Example 1: ONE command with exec_command()
-print("===== Example 1: exec_command() =====")
-ssh = connect()
-stdin, stdout, stderr = ssh.exec_command("show ip interface brief")
-print(stdout.read().decode())
-ssh.close()
-
-# Example 2: SEVERAL commands with exec_command()
+# Example 1: SEVERAL commands with exec_command()
 # Cisco IOS normally accepts only one exec_command() per connection,
 # so we connect again for each command.
-print("===== Example 2: exec_command() in a loop =====")
+print("===== Example 1: exec_command() in a loop =====")
 for command in ["show clock", "show ip route"]:
     ssh = connect()
     stdin, stdout, stderr = ssh.exec_command(command)
     print(stdout.read().decode())
     ssh.close()
 
-# Example 3: several commands in ONE session with invoke_shell() and run()
-print("===== Example 3: invoke_shell() and run() =====")
+# Example 2: several commands in ONE session with invoke_shell() and run()
+print("===== Example 2: invoke_shell() and run() =====")
 ssh = connect()
 shell = ssh.invoke_shell()
 run(shell, "terminal length 0")  # show full output without --More--
@@ -336,9 +302,9 @@ print(run(shell, "show clock"))
 print(run(shell, "show ip interface brief"))
 ssh.close()
 
-# Example 4: change the config with invoke_shell() and run()
+# Example 3: change the config with invoke_shell() and run()
 # Creates Loopback100 with IP 1.1.1.1, then shows the result.
-print("===== Example 4: config change with run() =====")
+print("===== Example 3: config change with run() =====")
 ssh = connect()
 shell = ssh.invoke_shell()
 run(shell, "terminal length 0")
@@ -356,7 +322,7 @@ Run it:
 python paramiko_examples.py
 ```
 
-After Example 4, `Loopback100` with `1.1.1.1` appears in the `show ip interface brief` output of R1.
+After Example 3, `Loopback100` with `1.1.1.1` appears in the `show ip interface brief` output of R1.
 
 ## Troubleshooting
 
