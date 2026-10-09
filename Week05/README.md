@@ -222,25 +222,31 @@ Use version 4.0.0. Newer versions no longer include the `ssh-rsa` signature type
 `main.py`:
 
 ```python
-import os
-
+# Example 2: run SEVERAL commands with exec_command()
+# Cisco IOS normally accepts only one exec_command() per connection,
+# so we connect again for each command.
 import paramiko
 
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect(
-    "192.168.113.11",
-    username="admin",
-    key_filename=os.path.expanduser("~/.ssh/id_rsa"),
-    allow_agent=False,
-    look_for_keys=False,
-    disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]},
-)
 
-stdin, stdout, stderr = ssh.exec_command("show version")
-print(stdout.read().decode())
+def exec_one(command):
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(
+        "192.168.113.11",
+        username="admin",
+        password="cisco123",
+        allow_agent=False,
+        look_for_keys=False,
+    )
+    stdin, stdout, stderr = ssh.exec_command(command)
+    output = stdout.read().decode()
+    ssh.close()
+    return output
 
-ssh.close()
+
+for command in ["show clock", "show ip interface brief", "show version | include uptime"]:
+    print("=====", command, "=====")
+    print(exec_one(command))
 ```
 
 What each part does:
@@ -254,124 +260,6 @@ What each part does:
 
 - `invoke_shell()` opens an interactive session, like typing in PuTTY. Many commands can run in one session, including configuration mode. The `run()` helper sends a command, waits one second, and returns what the router printed.
 
-`ex2_exec_many.py`:
-
-```python
-# Example 2: run SEVERAL commands with exec_command()
-# Cisco IOS normally accepts only one exec_command() per connection,
-# so we connect again for each command.
-import os
-
-import paramiko
-
-
-def exec_one(command):
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(
-        "192.168.113.11",
-        username="admin",
-        key_filename=os.path.expanduser("~/.ssh/id_rsa"),
-        allow_agent=False,
-        look_for_keys=False,
-        disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]},
-    )
-    stdin, stdout, stderr = ssh.exec_command(command)
-    output = stdout.read().decode()
-    ssh.close()
-    return output
-
-
-for command in ["show clock", "show ip interface brief", "show version | include uptime"]:
-    print("=====", command, "=====")
-    print(exec_one(command))
-```
-
-`ex3_invoke_shell.py`:
-
-```python
-# Example 3: run several commands in ONE session with invoke_shell() and run()
-import os
-import time
-
-import paramiko
-
-
-def run(shell, command):
-    shell.send(command + "\n")
-    time.sleep(1)
-    return shell.recv(65535).decode()
-
-
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect(
-    "192.168.113.11",
-    username="admin",
-    key_filename=os.path.expanduser("~/.ssh/id_rsa"),
-    allow_agent=False,
-    look_for_keys=False,
-    disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]},
-)
-
-shell = ssh.invoke_shell()
-run(shell, "terminal length 0")  # show full output without --More--
-
-print(run(shell, "show clock"))
-print(run(shell, "show ip interface brief"))
-
-
-ssh.close()
-```
-
-`ex4_shell_config.py`:
-
-```python
-# Example 4: change the router config with invoke_shell() and run()
-# Creates Loopback100 with IP 1.1.1.1, then shows the result.
-import os
-import time
-
-import paramiko
-
-
-def run(shell, command):
-    shell.send(command + "\n")
-    time.sleep(1)
-    return shell.recv(65535).decode()
-
-
-ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect(
-    "192.168.113.11",
-    username="admin",
-    key_filename=os.path.expanduser("~/.ssh/id_rsa"),
-    allow_agent=False,
-    look_for_keys=False,
-    disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]},
-)
-
-shell = ssh.invoke_shell()
-run(shell, "terminal length 0")
-
-run(shell, "configure terminal")
-run(shell, "interface loopback 100")
-run(shell, "ip address 1.1.1.1 255.255.255.255")
-run(shell, "end")
-
-print(run(shell, "show ip interface brief"))
-
-ssh.close()
-```
-
-Run each file, for example:
-
-```
-python ex2_exec_many.py
-```
-
-After `ex4_shell_config.py`, `Loopback100` with `1.1.1.1` appears in the `show ip interface brief` output of R1.
 
 ## Troubleshooting
 
