@@ -13,6 +13,8 @@
 # --force           : overwrite an existing lab05.unl (a timestamped backup is kept).
 #
 # LAB_ROOT (env)    : override /opt/unetlab/labs (used for dry-run testing).
+# R1 e0/1 IP        : <first 3 octets of the pnet0 (NAT) IP>.11/24, read at run time.
+# NAT_IP (env)      : use this IP instead of the pnet0 IP (used for dry-run testing).
 set -euo pipefail
 
 IOL_DIR=/opt/unetlab/addons/iol/bin
@@ -22,6 +24,7 @@ LAB_FOLDER=Labs
 LAB_NAME=lab05
 LAB_ID=81d68abf-af2a-4835-b99e-ccca482aacad
 LABS_ONLY=${LABS_ONLY:-0}
+NAT_IP=${NAT_IP:-}
 
 IMAGE_SRC=""; IOURC_SRC=""; SKIP_ISHARE2=0; FORCE=0
 while [ $# -gt 0 ]; do
@@ -39,6 +42,15 @@ log() { echo -e "\e[1;32m[+]\e[0m $*"; }
 warn() { echo -e "\e[1;33m[!]\e[0m $*"; }
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
+
+# R1 IP: the same /24 as the PNETLab NAT IP on pnet0, with host part .11.
+if [ -z "$NAT_IP" ]; then
+    NAT_IP=$(ip -4 -o addr show pnet0 2>/dev/null | awk 'NR==1 {print $4}' | cut -d/ -f1) || true
+fi
+[[ $NAT_IP =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "No IPv4 address on pnet0 (or set NAT_IP)." >&2; exit 1; }
+R1_IP=${NAT_IP%.*}.11
+[ "$R1_IP" != "$NAT_IP" ] || { echo "pnet0 already uses $R1_IP, so R1 cannot use it." >&2; exit 1; }
+log "PNETLab NAT IP (pnet0): $NAT_IP -> R1 e0/1: $R1_IP/24"
 
 if [ "$LABS_ONLY" != 1 ]; then
     # 1. Packages
@@ -87,6 +99,7 @@ fi
 
 # R1 startup-config (reproduced from R1's saved NVRAM).
 # The admin secret is the same MD5 hash R1 had, so the existing password still works.
+# __R1_IP__ is replaced with R1_IP after the heredoc.
 read -r -d '' R1_CONFIG <<'EOF' || true
 !
 version 15.7
@@ -122,7 +135,7 @@ interface Ethernet0/0
  duplex auto
 !
 interface Ethernet0/1
- ip address 192.168.48.11 255.255.255.0
+ ip address __R1_IP__ 255.255.255.0
  duplex auto
 !
 interface Ethernet0/2
@@ -158,6 +171,7 @@ crypto key generate rsa general-keys modulus 2048
 !
 end
 EOF
+R1_CONFIG=${R1_CONFIG/__R1_IP__/$R1_IP}
 R1_CONFIG_B64=$(printf '%s\n' "$R1_CONFIG" | base64 -w0)
 
 # PNETLab logo text object exactly as it was in the original lab05 (base64 HTML).
@@ -200,13 +214,12 @@ if [ "$LABS_ONLY" != 1 ]; then
     rm -rf /tmp/netio*
 fi
 
-IP=$(ip -4 -o addr show pnet0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
 log "Done."
 cat <<EOF
 
 Next steps (GUI):
-  1. Browse to http://${IP:-<pnetlab-ip>}/ and pick OFFLINE mode, log in admin/pnet (change it).
+  1. Browse to http://$NAT_IP/ and pick OFFLINE mode, log in admin/pnet (change it).
   2. Open /$LAB_FOLDER/$LAB_NAME.unl and start R1. It boots with its startup-config:
-       e0/1 = 192.168.48.11/24 on pnet0 (mgmt LAN), e0/0 on pnet1, SSH v2 with user 'admin'.
-  3. Test:  ssh admin@192.168.48.11
+       e0/1 = $R1_IP/24 on pnet0 (mgmt LAN), e0/0 on pnet1, SSH v2 with user 'admin'.
+  3. Test:  ssh admin@$R1_IP
 EOF
