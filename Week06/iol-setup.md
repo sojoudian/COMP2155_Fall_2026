@@ -51,7 +51,7 @@ conf t
 no service config
 hostname R1
 ip domain-name lab.local
-int e0/0
+int e0/1
  ip address 192.168.113.11 255.255.255.0
  no shut
 exit
