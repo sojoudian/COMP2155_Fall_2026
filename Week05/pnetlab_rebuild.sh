@@ -1,15 +1,14 @@
 #!/bin/bash
 # pnetlab_rebuild.sh - rebuild the PNETLab setup from 2026-10-15 on a fresh PNETLab box.
 #
-#   apt update + tools -> ishare2 CLI -> IOL image + your iourc -> permissions/cleanup
+#   apt update + tools -> ishare2 CLI -> IOL image + iourc -> permissions/cleanup
 #   -> /Labs/lab05.unl (R1 IOL router, pnet0/pnet1 clouds, logo, R1 startup-config)
 #
 # Usage:
-#   ./pnetlab_rebuild.sh --image /path/i86bi_Linux-L3-AdvEnterpriseK9-M2_157_3_May_2018.bin \
-#                        --iourc /path/iourc [--skip-ishare2] [--force]
+#   ./pnetlab_rebuild.sh [--image /path/<IOL image>.bin] [--iourc /path/iourc] [--skip-ishare2] [--force]
 #
-# --image / --iourc : your own licensed IOL image and license file (copied into place).
-#                     If the image is already in /opt/unetlab/addons/iol/bin, --image can be omitted.
+# --image / --iourc : your own IOL image and license file (copied into place). Without them, the
+#                     script downloads the image with ishare2 and keeps the iourc that PNETLab ships.
 # --force           : overwrite an existing lab05.unl (a timestamped backup is kept).
 #
 # LAB_ROOT (env)    : override /opt/unetlab/labs (used for dry-run testing).
@@ -33,13 +32,24 @@ while [ $# -gt 0 ]; do
         --iourc) IOURC_SRC=$2; shift 2 ;;
         --skip-ishare2) SKIP_ISHARE2=1; shift ;;
         --force) FORCE=1; shift ;;
-        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
 
 log() { echo -e "\e[1;32m[+]\e[0m $*"; }
 warn() { echo -e "\e[1;33m[!]\e[0m $*"; }
+
+# Download the IOL image with ishare2. The ishare2 image ID can change, so find it by name.
+pull_iol() {
+    local id
+    command -v ishare2 >/dev/null 2>&1 || return 1
+    ishare2 search iol "$IMAGE_NAME" </dev/null >/dev/null || return 1
+    id=$(jq -r --arg n "$IMAGE_NAME" '.IOL[] | select(.name == $n) | .id' /opt/ishare2/cli/labhub.json | head -n1) || return 1
+    [ -n "$id" ] || return 1
+    # ROTATE=true: each pull uses the next mirror, so the second try uses the other mirror.
+    ishare2 pull iol "$id" --overwrite </dev/null || ishare2 pull iol "$id" --overwrite </dev/null
+}
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
 
@@ -54,18 +64,32 @@ log "PNETLab NAT IP (pnet0): $NAT_IP -> R1 e0/1: $R1_IP/24"
 
 if [ "$LABS_ONLY" != 1 ]; then
     # 1. Packages
+    # The i-share.top repo has a bad Release.gpg, and apt-get update fails on it. ishare2 removes it too.
+    if grep -qs 'i-share\.top' /etc/apt/sources.list /etc/apt/sources.list.d/*.list; then
+        log "Removing the i-share.top apt repo (bad signature)"
+        sed -i '/i-share\.top/d' $(grep -ls 'i-share\.top' /etc/apt/sources.list /etc/apt/sources.list.d/*.list)
+    fi
     log "apt update + jq/tree"
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y jq tree wget unzip
+    apt-get update || warn "apt-get update had errors - continuing"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y jq tree wget unzip curl || warn "apt-get install had errors - continuing"
 
     # 2. ishare2 CLI
     if [ "$SKIP_ISHARE2" = 1 ]; then
         log "Skipping ishare2"
-    elif command -v ishare2 >/dev/null 2>&1; then
-        log "ishare2 already installed: $(command -v ishare2)"
     else
-        log "Installing ishare2"
-        wget -qO- https://ishare2.sh/install | sh
+        # With a config file, ishare2 does not start its interactive first-run wizard.
+        # These are the wizard default values.
+        [ -s /etc/ishare2.conf ] || printf '%s\n' USE_ARIA2C=false SSL_CHECK=true CHANNEL=main ROTATE=true \
+            AUTO_FIX_PERMISSIONS=false > /etc/ishare2.conf
+        if command -v ishare2 >/dev/null 2>&1; then
+            log "ishare2 already installed: $(command -v ishare2)"
+        else
+            log "Installing ishare2"
+            ISHARE2_INSTALLER=$(mktemp)
+            { wget -qO "$ISHARE2_INSTALLER" https://ishare2.sh/install && sh "$ISHARE2_INSTALLER" </dev/null; } \
+                || warn "ishare2 install failed"
+            rm -f "$ISHARE2_INSTALLER"
+        fi
     fi
 
     # 3. IOL image + license
@@ -73,14 +97,19 @@ if [ "$LABS_ONLY" != 1 ]; then
     if [ -n "$IMAGE_SRC" ]; then
         log "Copying IOL image"
         install -m 0755 "$IMAGE_SRC" "$IOL_DIR/$IMAGE_NAME"
+    elif [ ! -s "$IOL_DIR/$IMAGE_NAME" ]; then
+        log "Downloading the IOL image with ishare2"
+        # A failed download can leave a bad file, so remove it.
+        pull_iol || rm -f "$IOL_DIR/$IMAGE_NAME"
     fi
-    [ -f "$IOL_DIR/$IMAGE_NAME" ] || { echo "IOL image missing: $IOL_DIR/$IMAGE_NAME (pass --image)" >&2; exit 1; }
+    [ -s "$IOL_DIR/$IMAGE_NAME" ] || { echo "IOL image missing: $IOL_DIR/$IMAGE_NAME (pass --image)" >&2; exit 1; }
     if [ -n "$IOURC_SRC" ]; then
         log "Installing iourc"
         install -m 0755 "$IOURC_SRC" "$IOL_DIR/iourc"
-    elif [ ! -s "$IOL_DIR/iourc" ]; then
-        warn "No iourc in $IOL_DIR - R1 will not boot until you add your license (pass --iourc)"
     fi
+    # PNETLab ships an iourc for the hostname "pnetlab". An iourc line is valid for one hostname only.
+    grep -qs "^$(hostname) *=" "$IOL_DIR/iourc" \
+        || warn "No iourc line for hostname $(hostname) in $IOL_DIR/iourc - R1 will not boot until you add your license (pass --iourc)"
 fi
 
 # 4. Lab folder + lab file
