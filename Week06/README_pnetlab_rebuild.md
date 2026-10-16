@@ -72,6 +72,48 @@ ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa 
 
 Type `cisco123` at the password prompt. Then run `show ip interface brief` to see the interfaces.
 
+## 5. Install Paramiko (Windows)
+
+In the PyCharm terminal of your project:
+
+```
+pip install paramiko==4.0.0
+```
+
+Use version 4.0.0. Newer versions no longer include the `ssh-rsa` signature type that the scripts below select.
+
+## 6. First script: one command
+
+`main.py`:
+
+```python
+# Example 2: run SEVERAL commands with exec_command()
+# Cisco IOS normally accepts only one exec_command() per connection,
+# so we connect again for each command.
+import paramiko
+
+
+def exec_one(command):
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(
+        "192.168.113.11",
+        username="admin",
+        password="cisco123",
+        allow_agent=False,
+        look_for_keys=False,
+    )
+    stdin, stdout, stderr = ssh.exec_command(command)
+    output = stdout.read().decode()
+    ssh.close()
+    return output
+
+
+for command in ["show clock", "show ip interface brief", "show version | include uptime"]:
+    print("=====", command, "=====")
+    print(exec_one(command))
+```
+
 ## Options
 
 | Option | Function |
