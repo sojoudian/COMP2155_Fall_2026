@@ -1,0 +1,3 @@
+interface,ip,description
+Loopback1,2.2.2.2,Netmiko loopback 1
+Loopback2,3.3.3.3,Netmiko loopback 2
