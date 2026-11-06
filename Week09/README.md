@@ -9,6 +9,14 @@
 
 `r1-lan.cfg` is the configuration of R1.
 
+## Download the configuration
+
+Open a terminal in the folder `Week09`, and run this command:
+
+```
+curl -O https://raw.githubusercontent.com/sojoudian/COMP2155_Fall_2026/master/Week09/r1-lan.cfg
+```
+
 ## Run the router
 
 Open a terminal in the folder `Week09`, and run the command for your computer.
