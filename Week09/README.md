@@ -1,0 +1,26 @@
+# Week 09: Run a Router with crouter
+
+`crouter` runs a router on your computer. You do not need PNETLab, GNS3, or EVE-NG.
+
+| File | Computer |
+|---|---|
+| `crouter-darwin-arm64` | macOS on Apple Silicon (M chip) |
+| `crouter-windows-amd64.exe` | Windows on x86-64 |
+
+`r1-lan.cfg` is the configuration of R1.
+
+## Run the router
+
+Open a terminal in the folder `Week09`, and run the command for your computer.
+
+macOS:
+
+```
+./crouter-darwin-arm64 --config r1-lan.cfg
+```
+
+Windows:
+
+```
+.\crouter-windows-amd64.exe --config r1-lan.cfg
+```
