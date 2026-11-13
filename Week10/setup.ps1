@@ -242,7 +242,7 @@ end
     }
 
     Write-Host ''
-    Write-Host 'Connect:  ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc admin@ADDRESS'
+    Write-Host 'Connect:  ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1 admin@ADDRESS'
     Write-Host 'Password: cisco123. ADDRESS is in the table above.'
     Write-Host "Stop:     tessera lab down $labDir\wk10.yaml   (PowerShell as Administrator)"
     Write-Host ''

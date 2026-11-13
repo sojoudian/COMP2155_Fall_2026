@@ -197,7 +197,7 @@ main() {
 	printf '\n== 3. Start R1 and R2 on your LAN\n'
 	as_root "$TESSERA" lab up wk10.yaml --lan
 
-	printf '\nConnect:  ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc admin@ADDRESS\n'
+	printf '\nConnect:  ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1 admin@ADDRESS\n'
 	printf 'Password: cisco123. ADDRESS is in the table above.\n'
 	printf 'Stop:     sudo tessera lab down %s/wk10.yaml\n\n' "$LAB_DIR"
 }

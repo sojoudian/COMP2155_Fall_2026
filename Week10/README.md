@@ -59,7 +59,7 @@ ping 10.0.0.254
 Connect to the router with SSH. The 7200 has only old SSH algorithms:
 
 ```
-ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc admin@10.0.0.254
+ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1 admin@10.0.0.254
 ```
 
 Do the same test with the R2 address. The other computers on your LAN can use the same commands.
