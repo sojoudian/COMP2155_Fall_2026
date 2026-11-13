@@ -1,0 +1,5 @@
+interface loopback1
+ip address 1.1.1.1 255.255.255.255
+exit
+router ospf 1
+network 0.0.0.0 0.0.0.0 area 0
