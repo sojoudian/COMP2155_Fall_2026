@@ -42,6 +42,12 @@ The routers see this computer as 10.0.0.252.
 
 Your addresses are different. The user is `admin`, and the password is `cisco123`.
 
+The script uses only free addresses. If other hosts or another lab on your computer use some addresses, the script skips them and shows them on one line above the table:
+
+```
+week10: in use: 10.0.0.254 (aa:bb:cc:00:2c:00), 10.0.0.250 (this computer routes it to utun10: another lab)
+```
+
 ## Step 3: Test the routers
 
 Use the R1 address from your table. The address 10.0.0.254 is only an example:
@@ -102,3 +108,5 @@ On Windows, it also removes the network adapter, the network profiles and the Wi
 
 - **Port 22610 or 22620 is in use.** Another lab on your computer uses the port. Stop that lab with `tessera lab down` and its `.yaml` file. Then do Step 1 again.
 - **No table at the end.** Read the error above the table. Your computer must be on a LAN (Wi-Fi or cable).
+- **"N free addresses in 10.0.0.0/24: want 3".** Your LAN has not enough free addresses. Stop your other labs with `tessera lab down`, or use another LAN. Then do Step 1 again.
+- **`%IP-4-DUPADDR` in `show logging` of a router.** Another host uses the address of the router. Do Step 1 again: the script finds new free addresses.
