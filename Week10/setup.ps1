@@ -24,6 +24,9 @@ function Start-Week10 {
     $ProgressPreference = 'SilentlyContinue'
     $self = 'https://raw.githubusercontent.com/sojoudian/COMP2155_Fall_2026/master/Week10/setup.ps1'
     $npcapUrl = 'https://npcap.com/dist/npcap-1.90.exe'
+    # The SHA-256 of npcap-1.90.exe and its signer (Nmap Software LLC).
+    $npcapSha256 = '682B57E1C05EF375931975C9D6DED40888F4BFDF9F4B11571E654F962F1199B6'
+    $npcapSigner = 'O=Nmap Software LLC'
     $labDir = Join-Path $HOME 'tessera-week10'
 
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -40,14 +43,27 @@ function Start-Week10 {
         Write-Host 'Npcap is installed.'
     } else {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-        $setup = Join-Path ([IO.Path]::GetTempPath()) 'npcap-setup.exe'
+        $setup = Join-Path ([IO.Path]::GetTempPath()) ('npcap-setup-' + [Guid]::NewGuid().ToString('N') + '.exe')
+        $manual = 'Install Npcap from https://npcap.com/#download (the default options), then run this script again.'
         Write-Host "Downloading $npcapUrl"
-        Invoke-WebRequest -Uri $npcapUrl -OutFile $setup -UseBasicParsing
-        $sig = Get-AuthenticodeSignature -FilePath $setup
-        if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'Insecure\.Com') {
-            Remove-Item $setup -Force
-            throw "The Npcap installer has no valid signature of Insecure.Com LLC ($($sig.Status)). Install Npcap from https://npcap.com/#download"
+        try {
+            Invoke-WebRequest -Uri $npcapUrl -OutFile $setup -UseBasicParsing
+        } catch {
+            Remove-Item $setup -Force -ErrorAction SilentlyContinue
+            throw "Cannot download Npcap: $($_.Exception.Message). $manual"
         }
+        $hash = (Get-FileHash -Path $setup -Algorithm SHA256).Hash
+        if ($hash -ne $npcapSha256) {
+            Remove-Item $setup -Force
+            throw "The Npcap installer is not the correct file (SHA-256 $hash). $manual"
+        }
+        $sig = Get-AuthenticodeSignature -FilePath $setup
+        $signer = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { 'none' }
+        if ($sig.Status -ne 'Valid' -or -not $signer.Contains($npcapSigner)) {
+            Remove-Item $setup -Force
+            throw "The signature of the Npcap installer is not correct (status $($sig.Status), signer $signer). $manual"
+        }
+        Write-Host 'The SHA-256 and the signature (Nmap Software LLC) are correct.'
         Write-Host 'The Npcap installer opens. Click "I Agree", "Install" and "Finish".'
         Start-Process -FilePath $setup -Wait
         Remove-Item $setup -Force -ErrorAction SilentlyContinue
