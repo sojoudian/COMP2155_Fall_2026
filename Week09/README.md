@@ -24,6 +24,8 @@ Open a terminal in the folder `Week09`, and run the command for your computer.
 macOS:
 
 ```
+chmod +x crouter-darwin-arm64
+xattr -d com.apple.quarantine crouter-darwin-arm64
 ./crouter-darwin-arm64 --config r1-lan.cfg
 ```
 
