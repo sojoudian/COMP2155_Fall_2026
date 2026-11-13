@@ -80,6 +80,24 @@ tessera lab down $HOME\tessera-week10\wk10.yaml
 
 To start the routers again, do Step 1 again. The script keeps your saved configs (`write memory`) in the folder `tessera-week10`.
 
+## Remove everything
+
+This removes all that Step 1 did: the routers, the folder `tessera-week10` (your saved configs too) and `tessera`.
+
+macOS and Linux:
+
+```
+curl -fsSL https://raw.githubusercontent.com/sojoudian/COMP2155_Fall_2026/master/Week10/uninstall.sh | bash
+```
+
+Windows (click "Yes" for Administrator):
+
+```
+irm https://raw.githubusercontent.com/sojoudian/COMP2155_Fall_2026/master/Week10/uninstall.ps1 | iex
+```
+
+On Windows, it also removes the network adapter, the network profiles and the Wintun driver of tessera. If the script installed Npcap, it removes Npcap. If Npcap was on your computer before, the script asks first, because Wireshark and Nmap use Npcap too.
+
 ## Problems
 
 - **Port 22610 or 22620 is in use.** Another lab on your computer uses the port. Stop that lab with `tessera lab down` and its `.yaml` file. Then do Step 1 again.

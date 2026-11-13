@@ -10,6 +10,7 @@
 #    router gets a free address of your LAN on FastEthernet0/0.
 #
 # Stop the routers: sudo tessera lab down ~/tessera-week10/wk10.yaml
+# Remove all of it: uninstall.sh in the same folder.
 #
 # All the work is in functions, and the last line calls them: a cut
 # download does not run half a script.

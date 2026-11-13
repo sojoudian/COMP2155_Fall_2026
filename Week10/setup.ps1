@@ -15,6 +15,8 @@
 # Stop the routers (PowerShell as Administrator):
 #   tessera lab down $HOME\tessera-week10\wk10.yaml
 #
+# Remove all of it: uninstall.ps1 in the same folder.
+#
 # All the work is in one function: an error stops it with "throw" (not
 # "exit", which closes the window), and a cut download does not run half a
 # script.
@@ -69,6 +71,9 @@ function Start-Week10 {
         Remove-Item $setup -Force -ErrorAction SilentlyContinue
         if (-not (Test-Path $wpcap)) { throw 'Npcap is not installed. Run this script again.' }
         Write-Host 'Npcap is installed.'
+        # uninstall.ps1 removes Npcap with no question when this file is there.
+        New-Item -ItemType Directory -Path $labDir -Force | Out-Null
+        Set-Content -Path (Join-Path $labDir '.npcap-by-setup') -Value $npcapUrl
     }
 
     Write-Host ''
