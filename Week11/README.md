@@ -110,4 +110,5 @@ On Windows, it also removes the network adapter, the network profiles and the Wi
 - **Port 22710, 22720, 22730, 23710, 23720 or 23730 is in use.** Another lab on your computer uses the port. Stop that lab with `tessera lab down` and its `.yaml` file. Then do Step 1 again.
 - **No table at the end.** Read the error above the table. Your computer must be on a LAN (Wi-Fi or cable).
 - **"N free addresses in 10.0.0.0/24: want 4".** Your LAN has not enough free addresses. Stop your other labs with `tessera lab down`, or use another LAN. Then do Step 1 again.
+- **`WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!` from `ssh`.** Your computer has an old key for this address. Remove it with `ssh-keygen -R 10.0.0.254` (use your address). Then connect again.
 - **`%IP-4-DUPADDR` in `show logging` of a router.** Another host uses the address of the router. Do Step 1 again: the script finds new free addresses.
