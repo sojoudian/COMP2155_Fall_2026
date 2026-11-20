@@ -79,9 +79,17 @@ function Start-Week11 {
 
     Write-Host ''
     Write-Host '== 2. Install tessera'
-    Invoke-RestMethod -Uri 'https://tessera.rest/install.ps1' -UseBasicParsing | Invoke-Expression
     $dir = if ($env:TESSERA_INSTALL_DIR) { $env:TESSERA_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'tessera\bin' }
     $tessera = Join-Path $dir 'tessera.exe'
+    # A lab that an older tessera started runs from tessera.exe.old. The
+    # installer cannot replace that file, so stop those processes first.
+    $oldRun = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq "$tessera.old" })
+    if ($oldRun.Count -gt 0) {
+        Write-Host "Stopping the lab of an older tessera: $(($oldRun | ForEach-Object { $_.ProcessId }) -join ', ')"
+        $oldRun | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        $oldRun | ForEach-Object { Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }
+    }
+    Invoke-RestMethod -Uri 'https://tessera.rest/install.ps1' -UseBasicParsing | Invoke-Expression
     if (-not (Test-Path $tessera)) { throw 'tessera is not installed. See the error above.' }
 
     Write-Host ''
@@ -352,6 +360,14 @@ ntp server pool.ntp.org
 end
 '@
     [IO.File]::WriteAllText((Join-Path $labDir 'week11.yaml'), ($yaml -replace "`r", '') + "`n", $utf8)
+    # "lan: internet" gives the routers a default route and name servers
+    # ("ping google.com"). It is not in tessera 0.0.7 and older.
+    $ErrorActionPreference = 'Continue'
+    $flags = (& $tessera -h 2>&1 | Out-String)
+    $ErrorActionPreference = 'Stop'
+    if ($flags -match '-lan-internet') {
+        [IO.File]::AppendAllText((Join-Path $labDir 'week11.yaml'), "lan:`n  internet: true`n", $utf8)
+    }
     foreach ($r in @(
             @{ Name = 'R1'; Secret = '$1$vwf3$VU/7dT4bv5xV09cCsY2QY.'; IP = '10.1.1.10'; Template = $template },
             @{ Name = 'R2'; Secret = '$1$kzaF$yOPk/X/AWa6/iH1p02OB/0'; IP = '10.1.1.20'; Template = $template },

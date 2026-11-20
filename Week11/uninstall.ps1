@@ -3,9 +3,9 @@
 #   irm https://raw.githubusercontent.com/sojoudian/COMP2155_Fall_2026/master/Week11/uninstall.ps1 | iex
 #
 # 1. It starts an Administrator PowerShell if this one is not.
-# 2. It stops R1, R2 and R3 ("tessera lab down"). It also stops the tessera
-#    processes of the lab that still run (for example after the lab folder
-#    was deleted).
+# 2. It stops R1, R2 and R3 ("tessera lab down"). It also stops all other
+#    tessera processes that still run (for example a lab of another week):
+#    step 4 and step 5 remove files that they use.
 # 3. It removes the lab folder %USERPROFILE%\.tessera\week11, with your
 #    saved configs. It removes %USERPROFILE%\.tessera too when that folder
 #    is empty.
@@ -59,11 +59,11 @@ function Remove-Week11 {
             Pop-Location
         }
     }
-    $left = @(Get-CimInstance Win32_Process | Where-Object {
-            $_.Name -like 'tessera*.exe' -and $_.CommandLine -and
-            $_.CommandLine.IndexOf("$labDir\", [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+    # All tessera processes, also those of a lab in another folder: they
+    # hold wintun.dll and tessera.exe, and step 3 and step 4 remove those.
+    $left = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'tessera*.exe' -or $_.Name -eq 'tessera.exe.old' })
     if ($left.Count -gt 0) {
-        Write-Host "Stopping the lab processes that still run: $(($left | ForEach-Object { $_.ProcessId }) -join ', ')"
+        Write-Host "Stopping the tessera processes that still run: $(($left | ForEach-Object { $_.ProcessId }) -join ', ')"
         $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         $left | ForEach-Object { Wait-Process -Id $_.ProcessId -Timeout 10 -ErrorAction SilentlyContinue }
     }

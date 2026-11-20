@@ -313,6 +313,11 @@ links:
   - [R2:FastEthernet0/0, SW1]
   - [R3:Ethernet0/0, SW1]
 EOF
+	# "lan: internet" gives the routers a default route and name servers
+	# ("ping google.com"). It is not in tessera 0.0.7 and older.
+	if "$TESSERA" -h 2>&1 | grep -q -- '-lan-internet'; then
+		printf 'lan:\n  internet: true\n' >>"$LAB_DIR/week11.yaml"
+	fi
 	# The secrets are IOS hashes: no expansion.
 	# shellcheck disable=SC2016
 	[ -f "$LAB_DIR/R1.cfg" ] || config R1 '$1$vwf3$VU/7dT4bv5xV09cCsY2QY.' 10.1.1.10 >"$LAB_DIR/R1.cfg"
