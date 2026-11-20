@@ -4,13 +4,14 @@
 #   curl -fsSL https://raw.githubusercontent.com/sojoudian/COMP2155_Fall_2026/master/Week11/setup.sh | bash
 #
 # 1. It installs tessera (https://tessera.rest/install.sh).
-# 2. It writes the lab to ~/tessera-week11: wk11.yaml, R1.cfg, R2.cfg and R3.cfg.
+# 2. It writes the lab to ~/.tessera/week11: week11.yaml, R1.cfg, R2.cfg and
+#    R3.cfg.
 #    A config that is there already does not change (your "write memory").
-# 3. It starts R1, R2 and R3 with "sudo tessera lab up wk11.yaml --lan". Each
+# 3. It starts R1, R2 and R3 with "sudo tessera lab up week11.yaml --lan". Each
 #    router gets a free address of your LAN: FastEthernet0/0 on R1 and R2
 #    (Cisco 7200), Ethernet0/0 on R3 (Cisco IOL).
 #
-# Stop the routers: sudo tessera lab down ~/tessera-week11/wk11.yaml
+# Stop the routers: sudo tessera lab down ~/.tessera/week11/week11.yaml
 # Remove all of it: uninstall.sh in the same folder.
 #
 # All the work is in functions, and the last line calls them: a cut
@@ -18,7 +19,7 @@
 
 set -eu
 
-LAB_DIR="${HOME}/tessera-week11"
+LAB_DIR="${HOME}/.tessera/week11"
 
 fatal() {
 	printf 'error: %s\n' "$1" >&2
@@ -270,13 +271,20 @@ end
 EOF
 }
 
+# lan_address NAME: the LAN address of the router NAME ("": not found). It
+# reads the address table of "tessera lab status".
+lan_address() {
+	as_root "$TESSERA" lab status week11.yaml 2>/dev/null | awk -v r="$1" '
+		$1 == r { for (i = 2; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) { print $i; exit } }'
+}
+
 write_lab() {
 	mkdir -p "$LAB_DIR"
-	cat >"$LAB_DIR/wk11.yaml" <<'EOF'
+	cat >"$LAB_DIR/week11.yaml" <<'EOF'
 # Week 11: two Cisco 7200 routers (NPE-400, 15.2(4)S6) and one Cisco IOL
 # router (15.7(3)M2) on one switch.
 # With --lan, the switch is on the LAN of this computer, and each router gets
-# a free LAN address: FastEthernet0/0 on R1, R2 and R3, Ethernet0/0 on R3.
+# a free LAN address: FastEthernet0/0 on R1 and R2, Ethernet0/0 on R3.
 # User: admin / cisco123 (privilege 15). SSH and telnet are on.
 name: week11
 routers:
@@ -335,19 +343,33 @@ main() {
 	printf '\n== 2. Write the lab to %s (sudo can ask for your password)\n' "$LAB_DIR"
 	write_lab
 	cd "$LAB_DIR"
-	if as_root "$TESSERA" lab status wk11.yaml >/dev/null 2>&1; then
+	if as_root "$TESSERA" lab status week11.yaml >/dev/null 2>&1; then
 		printf 'The lab runs. Stop it first.\n'
-		as_root "$TESSERA" lab down wk11.yaml
+		as_root "$TESSERA" lab down week11.yaml
 	fi
 
 	printf '\n== 3. Start R1, R2 and R3 on your LAN\n'
-	as_root "$TESSERA" lab up wk11.yaml --lan
+	# --quiet (only the router table) is not in tessera 0.0.6 and older.
+	if "$TESSERA" lab help up 2>&1 | grep -q -- --quiet; then
+		as_root "$TESSERA" lab up week11.yaml --lan --quiet
+	else
+		as_root "$TESSERA" lab up week11.yaml --lan
+	fi
 
-	printf '\nConnect:  ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1 admin@ADDRESS\n'
-	printf 'R3 (IOL): ssh admin@ADDRESS\n'
-	printf 'Telnet:   telnet ADDRESS\n'
-	printf 'User: admin. Password: cisco123. ADDRESS is in the table above.\n'
-	printf 'Stop:     sudo tessera lab down %s/wk11.yaml\n\n' "$LAB_DIR"
+	# The addresses of R1 and R3 for the lines below.
+	R1_IP="$(lan_address R1)"
+	R3_IP="$(lan_address R3)"
+	[ -n "$R1_IP" ] || R1_IP=ADDRESS
+	[ -n "$R3_IP" ] || R3_IP=ADDRESS
+	printf '\nConnect:  ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1 admin@%s\n\n' "$R1_IP"
+	printf 'R3 (IOL): ssh admin@%s\n' "$R3_IP"
+	printf 'Telnet:   telnet %s\n' "$R1_IP"
+	if [ "$R1_IP" = ADDRESS ]; then
+		printf 'User: admin. Password: cisco123. ADDRESS is in the table above.\n'
+	else
+		printf 'User: admin. Password: cisco123.\n'
+	fi
+	printf 'Stop:     sudo tessera lab down %s/week11.yaml\n\n' "$LAB_DIR"
 }
 
 main "$@"

@@ -6,8 +6,9 @@
 # 2. It stops R1, R2 and R3 ("tessera lab down"). It also stops the tessera
 #    processes of the lab that still run (for example after the lab folder
 #    was deleted).
-# 3. It removes the lab folder %USERPROFILE%\tessera-week11, with your saved
-#    configs.
+# 3. It removes the lab folder %USERPROFILE%\.tessera\week11, with your
+#    saved configs. It removes %USERPROFILE%\.tessera too when that folder
+#    is empty.
 # 4. It removes what the path from this computer to the routers added: the
 #    "Tessera Tunnel" adapter devices, the "Tessera <address>" network profiles,
 #    %ProgramFiles%\Tessera (wintun.dll) and the Wintun driver (only when no
@@ -26,7 +27,8 @@ function Remove-Week11 {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
     $self = 'https://raw.githubusercontent.com/sojoudian/COMP2155_Fall_2026/master/Week11/uninstall.ps1'
-    $labDir = Join-Path $HOME 'tessera-week11'
+    $labTop = Join-Path $HOME '.tessera'
+    $labDir = Join-Path $labTop 'week11'
     $tunName = '^Tessera \d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'  # the network profile names of the host path
 
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -43,15 +45,15 @@ function Remove-Week11 {
 
     Write-Host ''
     Write-Host '== 1. Stop R1, R2 and R3'
-    if ((Test-Path $tessera) -and (Test-Path (Join-Path $labDir 'wk11.yaml'))) {
+    if ((Test-Path $tessera) -and (Test-Path (Join-Path $labDir 'week11.yaml'))) {
         Push-Location $labDir
         try {
             # PowerShell 5.1 stops on a redirected stderr line when the
             # preference is Stop.
             $ErrorActionPreference = 'Continue'
-            & $tessera lab status wk11.yaml *> $null
+            & $tessera lab status week11.yaml *> $null
             $running = $LASTEXITCODE -eq 0
-            if ($running) { & $tessera lab down wk11.yaml } else { Write-Host 'The lab does not run.' }
+            if ($running) { & $tessera lab down week11.yaml } else { Write-Host 'The lab does not run.' }
             $ErrorActionPreference = 'Stop'
         } finally {
             Pop-Location
@@ -71,6 +73,8 @@ function Remove-Week11 {
     if (Test-Path $labDir) {
         Remove-Item $labDir -Recurse -Force
         Write-Host "Removed $labDir."
+        # The folder of all labs, only when it is empty.
+        if ((Test-Path $labTop) -and -not (Get-ChildItem $labTop -Force)) { Remove-Item $labTop -Force }
     } else {
         Write-Host "There is no $labDir."
     }

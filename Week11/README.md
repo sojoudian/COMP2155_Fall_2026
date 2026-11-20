@@ -1,4 +1,4 @@
-# Week 11: Three Cisco Routers on Your LAN (NAPALM)
+# Week 11: Three Cisco Routers on Your LAN
 
 One command installs `tessera` and starts three routers: R1 and R2 are Cisco 7200 routers, and R3 is a Cisco IOL router. Each router gets a free address of your LAN (Wi-Fi or cable). Your computer and the other computers on the LAN connect to the routers at these addresses.
 
@@ -41,7 +41,7 @@ This computer and the other hosts on the LAN reach the routers at these addresse
 The routers see this computer as 10.0.0.251.
 ```
 
-Your addresses are different. The user is `admin`, and the password is `cisco123`. SSH and telnet are on.
+Your addresses are different. The user is `admin`, and the password is `cisco123`.
 
 The script uses only free addresses. If other hosts or another lab on your computer use some addresses, the script skips them and shows them on one line above the table:
 
@@ -63,61 +63,33 @@ Connect to the router with SSH. The 7200 has only old SSH algorithms:
 ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1 admin@10.0.0.254
 ```
 
-Do the same test with the R2 address. R3 is an IOL router and has the new SSH algorithms. Use the R3 address from your table:
+Do the same test with the R2 address. R3 is an IOL router: use `ssh admin@` and the R3 address, with no options. Telnet is on too: `telnet` and the address. The other computers on your LAN can use the same commands.
 
-```
-ssh admin@10.0.0.252
-```
-
-Telnet is the same for the three routers:
-
-```
-telnet 10.0.0.254
-```
-
-The other computers on your LAN can use the same commands.
-
-## Step 4: Run the NAPALM examples
-
-Install NAPALM. Use paramiko 3.5.0: paramiko 5 has no algorithm of the 7200:
+For NAPALM, use paramiko 3.5.0. paramiko 5 has no algorithm of the 7200:
 
 ```
 python -m pip install "paramiko==3.5.0" "netmiko==4.4.0" "napalm==5.2.0"
 ```
 
-Download the files of this folder. Before you run them, write your addresses in them:
-
-| File | What it does | Where the address is |
-|---|---|---|
-| `e1.py` | `get_facts` of R1 with SSH | `hostname` in the file |
-| `e2.py` | `get_interfaces` and `get_interfaces_ip` of R1 with telnet | `hostname` in the file |
-| `e3.py` | The facts and the addresses of the three routers with telnet | `devices.txt`, one address on each line |
-
-```
-python e1.py
-```
-
-If telnet does not connect, use SSH: remove `"transport": "telnet"` from the file.
-
-## Step 5: Stop the routers
+## Step 4: Stop the routers
 
 macOS and Linux:
 
 ```
-sudo tessera lab down ~/tessera-week11/wk11.yaml
+sudo tessera lab down ~/.tessera/week11/week11.yaml
 ```
 
 Windows (PowerShell as Administrator):
 
 ```
-tessera lab down $HOME\tessera-week11\wk11.yaml
+tessera lab down $HOME\.tessera\week11\week11.yaml
 ```
 
-To start the routers again, do Step 1 again. The script keeps your saved configs (`write memory`) in the folder `tessera-week11`.
+To start the routers again, do Step 1 again. The script keeps your saved configs (`write memory`) in the folder `.tessera/week11` of your home folder.
 
 ## Remove everything
 
-This removes all that Step 1 did: the routers, the folder `tessera-week11` (your saved configs too) and `tessera`.
+This removes all that Step 1 did: the routers, the folder `.tessera/week11` (your saved configs too) and `tessera`.
 
 macOS and Linux:
 

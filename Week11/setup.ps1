@@ -7,14 +7,14 @@
 # 2. It installs Npcap (https://npcap.com) if it is not installed: the
 #    Npcap installer opens. Click "I Agree", "Install" and "Finish".
 # 3. It installs tessera (https://tessera.rest/install.ps1).
-# 4. It writes the lab to %USERPROFILE%\tessera-week11: wk11.yaml, R1.cfg,
+# 4. It writes the lab to %USERPROFILE%\.tessera\week11: week11.yaml, R1.cfg,
 #    R2.cfg and R3.cfg. A config that is there already does not change.
-# 5. It starts R1, R2 and R3 with "tessera lab up wk11.yaml --lan". Each router
+# 5. It starts R1, R2 and R3 with "tessera lab up week11.yaml --lan". Each router
 #    gets a free address of your LAN: FastEthernet0/0 on R1 and R2 (Cisco
 #    7200), Ethernet0/0 on R3 (Cisco IOL).
 #
 # Stop the routers (PowerShell as Administrator):
-#   tessera lab down $HOME\tessera-week11\wk11.yaml
+#   tessera lab down $HOME\.tessera\week11\week11.yaml
 #
 # Remove all of it: uninstall.ps1 in the same folder.
 #
@@ -30,7 +30,7 @@ function Start-Week11 {
     # The SHA-256 of npcap-1.90.exe and its signer (Nmap Software LLC).
     $npcapSha256 = '682B57E1C05EF375931975C9D6DED40888F4BFDF9F4B11571E654F962F1199B6'
     $npcapSigner = 'O=Nmap Software LLC'
-    $labDir = Join-Path $HOME 'tessera-week11'
+    $labDir = Join-Path (Join-Path $HOME '.tessera') 'week11'
 
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -92,7 +92,7 @@ function Start-Week11 {
 # Week 11: two Cisco 7200 routers (NPE-400, 15.2(4)S6) and one Cisco IOL
 # router (15.7(3)M2) on one switch.
 # With --lan, the switch is on the LAN of this computer, and each router gets
-# a free LAN address: FastEthernet0/0 on R1, R2 and R3, Ethernet0/0 on R3.
+# a free LAN address: FastEthernet0/0 on R1 and R2, Ethernet0/0 on R3.
 # User: admin / cisco123 (privilege 15). SSH and telnet are on.
 name: week11
 routers:
@@ -351,7 +351,7 @@ ntp server pool.ntp.org
 !
 end
 '@
-    [IO.File]::WriteAllText((Join-Path $labDir 'wk11.yaml'), ($yaml -replace "`r", '') + "`n", $utf8)
+    [IO.File]::WriteAllText((Join-Path $labDir 'week11.yaml'), ($yaml -replace "`r", '') + "`n", $utf8)
     foreach ($r in @(
             @{ Name = 'R1'; Secret = '$1$vwf3$VU/7dT4bv5xV09cCsY2QY.'; IP = '10.1.1.10'; Template = $template },
             @{ Name = 'R2'; Secret = '$1$kzaF$yOPk/X/AWa6/iH1p02OB/0'; IP = '10.1.1.20'; Template = $template },
@@ -363,32 +363,60 @@ end
         }
     }
 
+    $r1 = 'ADDRESS'
+    $r3 = 'ADDRESS'
     Push-Location $labDir
     try {
         # PowerShell 5.1 stops on a redirected stderr line when the
         # preference is Stop.
         $ErrorActionPreference = 'Continue'
-        & $tessera lab status wk11.yaml *> $null
+        & $tessera lab status week11.yaml *> $null
         $running = $LASTEXITCODE -eq 0
         $ErrorActionPreference = 'Stop'
         if ($running) {
             Write-Host 'The lab runs. Stop it first.'
-            & $tessera lab down wk11.yaml
+            & $tessera lab down week11.yaml
         }
         Write-Host ''
         Write-Host '== 4. Start R1, R2 and R3 on your LAN'
-        & $tessera lab up wk11.yaml --lan
+        # --quiet (only the router table) is not in tessera 0.0.6 and older.
+        $ErrorActionPreference = 'Continue'
+        $help = (& $tessera lab help up 2>&1 | Out-String)
+        $ErrorActionPreference = 'Stop'
+        if ($help -match '--quiet') {
+            & $tessera lab up week11.yaml --lan --quiet
+        } else {
+            & $tessera lab up week11.yaml --lan
+        }
         if ($LASTEXITCODE -ne 0) { throw 'tessera lab up failed. See the error above.' }
+        # The addresses of R1 and R3 for the lines below: the address table
+        # of "tessera lab status".
+        $ErrorActionPreference = 'Continue'
+        $status = @(& $tessera lab status week11.yaml 2>$null)
+        $ErrorActionPreference = 'Stop'
+        foreach ($line in $status) {
+            $f = @("$line" -split '\s+' | Where-Object { $_ })
+            if ($f.Count -lt 2) { continue }
+            $ip = @($f | Select-Object -Skip 1 | Where-Object { $_ -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$' })
+            if ($ip.Count -eq 0) { continue }
+            if ($f[0] -eq 'R1') { $r1 = $ip[0] }
+            if ($f[0] -eq 'R3') { $r3 = $ip[0] }
+        }
     } finally {
         Pop-Location
     }
 
     Write-Host ''
-    Write-Host 'Connect:  ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1 admin@ADDRESS'
-    Write-Host 'R3 (IOL): ssh admin@ADDRESS'
-    Write-Host 'Telnet:   telnet ADDRESS'
-    Write-Host 'User: admin. Password: cisco123. ADDRESS is in the table above.'
-    Write-Host "Stop:     tessera lab down $labDir\wk11.yaml   (PowerShell as Administrator)"
+    Write-Host "Connect:  ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o Ciphers=+aes128-cbc -o MACs=+hmac-sha1 admin@$r1"
+    Write-Host ''
+    Write-Host "R3 (IOL): ssh admin@$r3"
+    Write-Host "Telnet:   telnet $r1"
+    if ($r1 -eq 'ADDRESS') {
+        Write-Host 'User: admin. Password: cisco123. ADDRESS is in the table above.'
+    } else {
+        Write-Host 'User: admin. Password: cisco123.'
+    }
+    Write-Host "Stop:     tessera lab down $labDir\week11.yaml   (PowerShell as Administrator)"
     Write-Host ''
 }
 

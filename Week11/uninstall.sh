@@ -6,7 +6,8 @@
 # 1. It stops R1, R2 and R3 ("sudo tessera lab down"). It also stops the
 #    tessera processes of the lab that still run (for example after the lab
 #    folder was deleted). Their utun or tun device and routes go with them.
-# 2. It removes the lab folder ~/tessera-week11, with your saved configs.
+# 2. It removes the lab folder ~/.tessera/week11, with your saved configs.
+#    It removes ~/.tessera too when that folder is empty.
 # 3. On macOS, it removes tessera from the application firewall list.
 # 4. It removes tessera (https://tessera.rest/install.sh --uninstall).
 #
@@ -15,7 +16,7 @@
 
 set -eu
 
-LAB_DIR="${HOME}/tessera-week11"
+LAB_DIR="${HOME}/.tessera/week11"
 FIREWALL=/usr/libexec/ApplicationFirewall/socketfilterfw
 
 fatal() {
@@ -49,9 +50,9 @@ lab_pids() {
 
 stop_lab() {
 	tessera="$(binaries | head -n 1)"
-	if [ -n "$tessera" ] && [ -f "$LAB_DIR/wk11.yaml" ]; then
-		if (cd "$LAB_DIR" && as_root "$tessera" lab status wk11.yaml >/dev/null 2>&1); then
-			(cd "$LAB_DIR" && as_root "$tessera" lab down wk11.yaml)
+	if [ -n "$tessera" ] && [ -f "$LAB_DIR/week11.yaml" ]; then
+		if (cd "$LAB_DIR" && as_root "$tessera" lab status week11.yaml >/dev/null 2>&1); then
+			(cd "$LAB_DIR" && as_root "$tessera" lab down week11.yaml)
 		else
 			printf 'The lab does not run.\n'
 		fi
@@ -81,6 +82,8 @@ remove_lab_dir() {
 	# The lab state (.crouter) belongs to root: lab up ran with sudo.
 	rm -rf "$LAB_DIR" 2>/dev/null || as_root rm -rf "$LAB_DIR"
 	printf 'Removed %s.\n' "$LAB_DIR"
+	# The folder of all labs, only when it is empty.
+	rmdir "${HOME}/.tessera" 2>/dev/null || true
 }
 
 remove_firewall_entries() {
