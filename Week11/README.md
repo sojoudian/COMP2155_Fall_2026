@@ -71,6 +71,24 @@ For NAPALM, use paramiko 3.5.0. paramiko 5 has no algorithm of the 7200:
 python -m pip install "paramiko==3.5.0" "netmiko==4.4.0" "napalm==5.2.0"
 ```
 
+### A router in PNETLab
+
+`e2.py` and `e3.py` use telnet. If you use a router in PNETLab and the script stops with `ConnectionRefusedError`, type these lines on the router:
+
+```
+configure terminal
+username admin privilege 15 secret cisco123
+enable secret cisco123
+end
+wr
+configure terminal
+line vty 0 4
+ transport input telnet ssh
+ login local
+end
+write memory
+```
+
 ## Step 4: Stop the routers
 
 macOS and Linux:
